@@ -145,13 +145,17 @@ def test_all_failures_return_friendly_message_without_raw_provider_errors(caplog
     assert answer.provider == "fallback"
     assert "could not" not in answer.answer.lower()
     assert "500" in caplog.text
+    assert "Returning grounded fallback" in caplog.text
+    assert "provider_failure" in caplog.text
     assert all(secret not in caplog.text for secret in script)
 
 
-def test_no_configured_keys_returns_friendly_message():
+def test_no_configured_keys_returns_friendly_message_and_logs_fallback_reason(caplog):
     answer = generate_answer("Question", ["F001 : Lagna is Scorpio"], api_keys=[], gemini_api_key="")
     assert answer.succeeded is True
     assert answer.provider == "fallback"
+    assert "Groq: no API keys configured" in caplog.text
+    assert "gemini_failure=no_api_key_configured" in caplog.text
 
 
 def _scripted(*responses):
@@ -233,6 +237,9 @@ def test_two_invalid_model_answers_return_relevant_safe_answer_and_log_violation
     assert "violations=" in caplog.text
     assert "Saturn in house 8 contradicts" in caplog.text
     assert f"raw_answer={wrong_two!r}" in caplog.text
+    assert "Returning grounded fallback" in caplog.text
+    assert "stage=first_try violations=" in caplog.text
+    assert "stage=regenerated violations=" in caplog.text
 
 
 def test_checker_rejects_wrong_lagna_sign_even_when_sign_exists_elsewhere():

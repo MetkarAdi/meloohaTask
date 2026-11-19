@@ -201,9 +201,13 @@ def generate_answer(
     keys = list(api_keys) if api_keys is not None else configured_keys()
     factory = client_factory or _default_client
     if not question.strip() or not facts:
+        reason = "missing_question" if not question.strip() else "missing_chart_facts"
+        LOGGER.warning("Returning friendly fallback reason=%s", reason)
         return LLMAnswer(FALLBACK_MESSAGE, "groq", selected_model, None, 0, 0, 0, Decimal("0"), False, False)
+    fallback_failures: list[str] = []
     if not keys:
         LOGGER.info("Groq unavailable: no API keys configured")
+        fallback_failures.append("Groq: no API keys configured")
 
     messages = _messages(question, facts)
     prompt_text = "\n".join(message["content"] for message in messages)
@@ -247,6 +251,7 @@ def generate_answer(
             stage = "first_try"
 
             if validation_issues:
+                fallback_failures.append(f"Groq key_slot={key.slot} stage=first_try violations={validation_issues!r}")
                 LOGGER.warning("Groq answer rejected key_slot=%s model=%s raw_answer=%r violations=%s", key.slot, selected_model, answer, validation_issues)
                 retry_messages = messages + [
                     {"role": "assistant", "content": answer},
@@ -263,6 +268,7 @@ def generate_answer(
                 validation_issues = validate_answer(answer, facts) if answer else ["The regenerated visible answer was empty."]
                 stage = "regenerated"
                 if validation_issues:
+                    fallback_failures.append(f"Groq key_slot={key.slot} stage=regenerated violations={validation_issues!r}")
                     LOGGER.warning("Groq regenerated answer rejected key_slot=%s model=%s raw_answer=%r violations=%s", key.slot, selected_model, answer, validation_issues)
                     break
 
@@ -289,6 +295,7 @@ def generate_answer(
                 "Groq attempt failed key_slot=%s model=%s error=%s prompt_tokens=%d completion_tokens=%d estimated_cost_usd=%s usage_estimated=%s",
                 key.slot, selected_model, _safe_status(error), failed_prompt, failed_completion, failed_cost, estimated,
             )
+            fallback_failures.append(f"Groq key_slot={key.slot} provider_failure={_safe_status(error)}")
             continue
         finally:
             close = getattr(client, "close", None)
@@ -298,7 +305,7 @@ def generate_answer(
                 except Exception:
                     LOGGER.debug("Groq client cleanup failed key_slot=%s", key.slot)
 
-    LOGGER.error("Groq fallback exhausted attempted_keys=%d prompt_tokens=%d completion_tokens=%d estimated_cost_usd=%s", len(keys), prompt_total, completion_total, cost_total)
+    LOGGER.error("Groq fallback exhausted attempted_keys=%d prompt_tokens=%d completion_tokens=%d estimated_cost_usd=%s failures=%s", len(keys), prompt_total, completion_total, cost_total, fallback_failures)
     selected_gemini_key = (gemini_api_key if gemini_api_key is not None else os.getenv("GEMINI_API_KEY", "")).strip()
     selected_gemini_model = (gemini_model or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash-lite").strip()
     if selected_gemini_key:
@@ -315,13 +322,14 @@ def generate_answer(
         if gemini.succeeded:
             return gemini
         fallback = safe_fact_answer(facts, question)
-        LOGGER.warning("Both Groq and Gemini failed; returning grounded fallback raw_answer=%r", fallback)
+        LOGGER.warning("Returning grounded fallback groq_failures=%s gemini_failure=see_provider_log raw_answer=%r", fallback_failures, fallback)
         return LLMAnswer(fallback, "fallback", "grounded-fallback", None, prompt_total + gemini.prompt_tokens,
                          completion_total + gemini.completion_tokens,
                          prompt_total + completion_total + gemini.total_tokens,
                          (cost_total + gemini.estimated_cost_usd) if cost_total is not None and gemini.estimated_cost_usd is not None else None,
                          any_estimated or gemini.usage_is_estimated, True, "fallback")
     fallback = safe_fact_answer(facts, question)
+    LOGGER.warning("Returning grounded fallback groq_failures=%s gemini_failure=no_api_key_configured raw_answer=%r", fallback_failures, fallback)
     return LLMAnswer(
         answer=fallback,
         provider="fallback",
