@@ -1,0 +1,31 @@
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm run setup
+      - run: npm test
+      - name: Run live evaluation smoke set
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEY_2: ${{ secrets.GROQ_API_KEY_2 }}
+          GROQ_API_KEY_3: ${{ secrets.GROQ_API_KEY_3 }}
+          GROQ_API_KEY_4: ${{ secrets.GROQ_API_KEY_4 }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-3.5-flash-lite
+        run: |
+          if [[ -n "$GROQ_API_KEY" && -n "$GEMINI_API_KEY" ]]; then
+            npm run eval:smoke
+          else
+            echo "Skipping live eval smoke: Groq/Gemini API keys are not configured as GitHub secrets."
+          fi

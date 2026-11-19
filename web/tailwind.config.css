@@ -1,0 +1,33 @@
+/* Tailwind CSS v4 theme tokens: color, spacing, typography, and corner scales. */
+@theme {
+  --color-void: #08070b;
+  --color-void-soft: #0d0a10;
+  --color-panel: #110e15;
+  --color-panel-raised: #17121c;
+  --color-panel-hover: #1d1723;
+  --color-line: #302535;
+  --color-line-soft: #241c2a;
+  --color-ink: #f7f0f6;
+  --color-ink-soft: #c9bdca;
+  --color-muted: #928694;
+  --color-muted-dark: #6f6372;
+  --color-magenta: #c71c76;
+  --color-magenta-bright: #e52a91;
+  --color-magenta-dark: #7a164a;
+  --color-magenta-wash: #321326;
+  --color-star: #d5b38a;
+  --color-success: #8bccad;
+  --color-danger: #ff98a5;
+  --font-display: Georgia, 'Times New Roman', serif;
+  --font-body: 'Aptos', 'Segoe UI', Arial, sans-serif;
+  --text-hero: clamp(2.8rem, 8vw, 5.75rem);
+  --text-heading: clamp(2rem, 5vw, 3.4rem);
+  --text-subheading: 1.35rem;
+  --text-caption: 0.72rem;
+  --spacing-18: 4.5rem;
+  --spacing-22: 5.5rem;
+  --spacing-26: 6.5rem;
+  --spacing-30: 7.5rem;
+  --radius-card: 1.5rem;
+  --radius-card-lg: 2rem;
+}

@@ -1,0 +1,51 @@
+{
+  "houses": [
+    {"id":"M001","key":"1","term":"first house","text":"The first house is associated with identity, the body, and how a person approaches life."},
+    {"id":"M002","key":"2","term":"second house","text":"The second house is associated with money a person keeps, family resources, speech, and values."},
+    {"id":"M003","key":"3","term":"third house","text":"The third house is associated with communication, learning by doing, courage, and siblings."},
+    {"id":"M004","key":"4","term":"fourth house","text":"The fourth house is associated with home, family foundations, comfort, and belonging."},
+    {"id":"M005","key":"5","term":"fifth house","text":"The fifth house is associated with creativity, study, self-expression, and joy."},
+    {"id":"M006","key":"6","term":"sixth house","text":"The sixth house is associated with daily work, routines, service, and meeting challenges."},
+    {"id":"M007","key":"7","term":"seventh house","text":"The seventh house is associated with close partnerships, marriage, and one-to-one agreements."},
+    {"id":"M008","key":"8","term":"eighth house","text":"The eighth house is associated with shared resources, deep change, and matters that need patience."},
+    {"id":"M009","key":"9","term":"ninth house","text":"The ninth house is associated with higher learning, beliefs, teachers, and long journeys."},
+    {"id":"M010","key":"10","term":"tenth house","text":"The tenth house is associated with career, responsibility, public work, and what a person builds over time."},
+    {"id":"M011","key":"11","term":"eleventh house","text":"The eleventh house is associated with gains, networks, friends, and longer-term aims."},
+    {"id":"M012","key":"12","term":"twelfth house","text":"The twelfth house is associated with rest, retreat, expenses, and time away from everyday demands."}
+  ],
+  "planets": [
+    {"id":"M013","key":"Sun","term":"Sun","text":"In Vedic astrology, the Sun is associated with confidence, visibility, purpose, and responsibility."},
+    {"id":"M014","key":"Moon","term":"Moon","text":"In Vedic astrology, the Moon is associated with feelings, habits, care, and the mind's daily rhythms."},
+    {"id":"M015","key":"Mars","term":"Mars","text":"In Vedic astrology, Mars is associated with initiative, effort, courage, and handling pressure."},
+    {"id":"M016","key":"Mercury","term":"Mercury","text":"In Vedic astrology, Mercury is associated with communication, analysis, learning, and practical exchange."},
+    {"id":"M017","key":"Jupiter","term":"Jupiter","text":"In Vedic astrology, Jupiter is associated with learning, guidance, growth, and perspective."},
+    {"id":"M018","key":"Venus","term":"Venus","text":"In Vedic astrology, Venus is associated with connection, affection, harmony, and enjoyment."},
+    {"id":"M019","key":"Saturn","term":"Saturn","text":"In Vedic astrology, Saturn is associated with patience, structure, duties, and progress built over time."},
+    {"id":"M020","key":"Rahu","term":"Rahu","text":"In Vedic astrology, Rahu is associated with strong ambition, curiosity, and unfamiliar experiences."},
+    {"id":"M021","key":"Ketu","term":"Ketu","text":"In Vedic astrology, Ketu is associated with inward focus, simplification, and learning through release."}
+  ],
+  "signs": [
+    {"id":"M022","key":"Aries","term":"Aries","text":"Aries is a fire sign associated with initiative, directness, and starting things."},
+    {"id":"M023","key":"Taurus","term":"Taurus","text":"Taurus is an earth sign associated with steadiness, patience, and practical comfort."},
+    {"id":"M024","key":"Gemini","term":"Gemini","text":"Gemini is an air sign associated with curiosity, conversation, and variety."},
+    {"id":"M025","key":"Cancer","term":"Cancer","text":"Cancer is a water sign associated with care, memory, and emotional security."},
+    {"id":"M026","key":"Leo","term":"Leo","text":"Leo is a fire sign associated with creative expression, confidence, and visibility."},
+    {"id":"M027","key":"Virgo","term":"Virgo","text":"Virgo is an earth sign associated with careful analysis, useful skills, and refinement."},
+    {"id":"M028","key":"Libra","term":"Libra","text":"Libra is an air sign associated with balance, cooperation, and thoughtful exchange."},
+    {"id":"M029","key":"Scorpio","term":"Scorpio","text":"Scorpio is a water sign associated with depth, persistence, and meaningful change."},
+    {"id":"M030","key":"Sagittarius","term":"Sagittarius","text":"Sagittarius is a fire sign associated with exploration, learning, and broad perspective."},
+    {"id":"M031","key":"Capricorn","term":"Capricorn","text":"Capricorn is an earth sign associated with planning, responsibility, and gradual achievement."},
+    {"id":"M032","key":"Aquarius","term":"Aquarius","text":"Aquarius is an air sign associated with ideas, communities, and unconventional approaches."},
+    {"id":"M033","key":"Pisces","term":"Pisces","text":"Pisces is a water sign associated with imagination, empathy, and reflection."}
+  ],
+  "concepts": [
+    {"id":"M034","key":"lagna","term":"Lagna","text":"Lagna, also called the ascendant, is the sign rising on the eastern horizon at birth and sets the chart's house sequence."},
+    {"id":"M035","key":"mahadasha","term":"Mahadasha","text":"A mahadasha is a long planetary period in the Vedic timing system; it describes a broad chapter, not a guaranteed event."},
+    {"id":"M036","key":"antardasha","term":"Antardasha","text":"An antardasha is a sub-period within a mahadasha and offers a more focused timing layer, not an exact event date."},
+    {"id":"M037","key":"pratyantardasha","term":"Pratyantardasha","text":"A pratyantardasha is a shorter sub-period within an antardasha, used as a fine-grained timing layer rather than a promise."},
+    {"id":"M038","key":"transit","term":"Transit","text":"A transit describes where a planet is moving now in relation to a birth chart; it can add context, not certainty."},
+    {"id":"M039","key":"house ruler","term":"house ruler","text":"A house ruler is the planet that rules the zodiac sign on a house; astrologers use it as one clue about that house's themes."},
+    {"id":"M040","key":"nakshatra","term":"Nakshatra","text":"A nakshatra is one of 27 lunar segments used in Vedic astrology to add detail to a planet's position."},
+    {"id":"M041","key":"timing limitation","term":"timing window","text":"Dasha dates mark the timing periods calculated from the chart; they do not specify the date an outside event will happen."}
+  ]
+}

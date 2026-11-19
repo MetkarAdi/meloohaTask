@@ -1,0 +1,52 @@
+@import 'tailwindcss';
+@import '../tailwind.config.css';
+
+* { box-sizing: border-box; }
+html { background: #08070b; }
+body { margin: 0; min-height: 100vh; overflow-x: hidden; }
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .35;
+  background-image:
+    radial-gradient(1px 1px at 8% 13%, #ffffffa8 0, transparent 100%),
+    radial-gradient(1px 1px at 27% 7%, #e9c9f4a0 0, transparent 100%),
+    radial-gradient(1.5px 1.5px at 51% 18%, #ffffff88 0, transparent 100%),
+    radial-gradient(1px 1px at 73% 10%, #f5d0e5a0 0, transparent 100%),
+    radial-gradient(1px 1px at 91% 24%, #ffffff99 0, transparent 100%),
+    radial-gradient(1px 1px at 16% 39%, #ffffff88 0, transparent 100%),
+    radial-gradient(1.5px 1.5px at 82% 44%, #e4c3f1a0 0, transparent 100%),
+    radial-gradient(1px 1px at 43% 55%, #ffffff88 0, transparent 100%),
+    radial-gradient(1px 1px at 6% 72%, #f3cae3a0 0, transparent 100%),
+    radial-gradient(1px 1px at 94% 81%, #ffffff88 0, transparent 100%),
+    radial-gradient(1.5px 1.5px at 61% 89%, #ffffff77 0, transparent 100%);
+  background-size: 100% 100%;
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: -30% -15% auto auto;
+  z-index: 0;
+  width: min(68vw, 60rem);
+  aspect-ratio: 1;
+  pointer-events: none;
+  background: radial-gradient(circle, #56133a24 0, #32132d10 36%, transparent 69%);
+}
+button, input, textarea, select { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+::selection { color: #fff; background: #a71966; }
+:focus-visible { outline: 2px solid #e52a91; outline-offset: 3px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .star-twinkle { animation: twinkle 5s ease-in-out infinite alternate; }
+  @keyframes twinkle { from { opacity: .45; } to { opacity: .9; } }
+  .typing-dot { animation: typing-dot 1s ease-in-out infinite; }
+  @keyframes typing-dot {
+    0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+}
+.typing-dot { display: block; width: 5px; height: 5px; border-radius: 9999px; background: #f08dc1; }

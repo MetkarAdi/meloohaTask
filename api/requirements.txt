@@ -1,0 +1,13 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+pytest==8.3.5
+httpx==0.28.1
+kerykeion==6.1.0
+geopy==2.4.1
+SQLAlchemy==2.0.57
+alembic==1.20.1
+pg8000==1.31.6
+python-dotenv==1.2.4
+groq==1.7.0
+google-genai>=1.0.0
+python-multipart==0.0.20

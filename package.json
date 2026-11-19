@@ -1,0 +1,20 @@
+{
+  "name": "melooha",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "node scripts/dev.mjs",
+    "test": "node scripts/test.mjs",
+    "build": "npm --prefix web run build",
+    "lint": "npm --prefix web run lint",
+    "typecheck": "npm --prefix web run typecheck",
+    "eval": "node scripts/eval.mjs",
+    "eval:smoke": "node scripts/eval.mjs --smoke",
+    "dummy-credits": "node scripts/dummy-credits.mjs"
+  },
+  "dependencies": {
+    "@neon/config": "^1.14.0",
+    "@neon/env": "^2.1.3"
+  }
+}
