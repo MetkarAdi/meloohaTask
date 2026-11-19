@@ -23,6 +23,10 @@ jobs:
           GROQ_API_KEY_4: ${{ secrets.GROQ_API_KEY_4 }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.5-flash-lite
+          EVAL_MIN_FACTUAL_ACCURACY: '0.70'
+          EVAL_MIN_GROUNDING_RATE: '0.90'
+          EVAL_MIN_INTERPRETATION_QUALITY: '3.4'
+          EVAL_STRICT_SUBJECTIVE: '0'
         run: |
           if [[ -n "$GROQ_API_KEY" && -n "$GEMINI_API_KEY" ]]; then
             npm run eval:smoke

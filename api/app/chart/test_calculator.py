@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from api.app.chart.calculator import calculate_chart
+from api.app.chart.calculator import calculate_chart, _nakshatra_pada, _varga_sign
 from api.app.chart.models import ChartRequest
 
 
@@ -38,3 +38,25 @@ def test_user_birth_chart_matches_expected_vedic_placements_and_dasha():
 
     assert chart.facts[0] == "F001 : Lagna is Scorpio"
     assert any(fact.startswith("F006 : Jupiter in house 10 (Leo)") for fact in chart.facts)
+
+
+def test_d9_d10_and_nakshatra_pada_are_derived_from_sidereal_longitude():
+    # Starts of sign divisions follow the coded Parashari rules: D9 movable
+    # starts at itself, fixed from the ninth, dual from the fifth; D10 even
+    # signs start from the ninth sign.
+    assert _varga_sign(0.1, 9) == "Aries"
+    assert _varga_sign(30.1, 9) == "Capricorn"
+    assert _varga_sign(60.1, 9) == "Libra"
+    assert _varga_sign(30.1, 10) == "Capricorn"
+    assert _nakshatra_pada(0.1) == 1
+    assert _nakshatra_pada(360 / 27 / 2) == 3
+
+    request = ChartRequest(birth_date=date(2003, 12, 3), birth_time=time(6, 43),
+                           location="Dhule, Maharashtra, India", latitude=20.9042, longitude=74.7749)
+    chart = calculate_chart(request, as_of=datetime(2026, 11, 15, 12, tzinfo=ZoneInfo("Asia/Kolkata")))
+    assert chart.d9.ascendant_sign
+    assert chart.d10.ascendant_sign
+    assert len(chart.d9.planets) == len(chart.d10.planets) == 9
+    assert all(1 <= planet.nakshatra_pada <= 4 for planet in chart.planets)
+    assert any("D9 Jupiter in house" in fact for fact in chart.facts)
+    assert any("D10 ascendant is" in fact for fact in chart.facts)

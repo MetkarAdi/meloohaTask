@@ -1,0 +1,392 @@
+{
+  "synthetic-a": {
+    "lagna_sign": "Virgo",
+    "planets": {
+      "Sun": {
+        "sign": "Gemini",
+        "house": 10,
+        "nakshatra": "Mrigashira",
+        "pada": 3,
+        "d9_sign": "Libra",
+        "d9_house": 9,
+        "d10_sign": "Gemini",
+        "d10_house": 1
+      },
+      "Moon": {
+        "sign": "Sagittarius",
+        "house": 4,
+        "nakshatra": "Mula",
+        "pada": 1,
+        "d9_sign": "Aries",
+        "d9_house": 3,
+        "d10_sign": "Sagittarius",
+        "d10_house": 7
+      },
+      "Mars": {
+        "sign": "Aries",
+        "house": 8,
+        "nakshatra": "Ashwini",
+        "pada": 3,
+        "d9_sign": "Gemini",
+        "d9_house": 5,
+        "d10_sign": "Gemini",
+        "d10_house": 1
+      },
+      "Mercury": {
+        "sign": "Gemini",
+        "house": 10,
+        "nakshatra": "Ardra",
+        "pada": 4,
+        "d9_sign": "Pisces",
+        "d9_house": 2,
+        "d10_sign": "Scorpio",
+        "d10_house": 6
+      },
+      "Jupiter": {
+        "sign": "Leo",
+        "house": 12,
+        "nakshatra": "Purva Phalguni",
+        "pada": 1,
+        "d9_sign": "Leo",
+        "d9_house": 7,
+        "d10_sign": "Sagittarius",
+        "d10_house": 7
+      },
+      "Venus": {
+        "sign": "Gemini",
+        "house": 10,
+        "nakshatra": "Mrigashira",
+        "pada": 3,
+        "d9_sign": "Libra",
+        "d9_house": 9,
+        "d10_sign": "Gemini",
+        "d10_house": 1
+      },
+      "Saturn": {
+        "sign": "Capricorn",
+        "house": 5,
+        "nakshatra": "Dhanishtha",
+        "pada": 1,
+        "d9_sign": "Leo",
+        "d9_house": 7,
+        "d10_sign": "Taurus",
+        "d10_house": 12
+      },
+      "Rahu": {
+        "sign": "Sagittarius",
+        "house": 4,
+        "nakshatra": "Mula",
+        "pada": 3,
+        "d9_sign": "Gemini",
+        "d9_house": 5,
+        "d10_sign": "Aquarius",
+        "d10_house": 9
+      },
+      "Ketu": {
+        "sign": "Gemini",
+        "house": 10,
+        "nakshatra": "Ardra",
+        "pada": 1,
+        "d9_sign": "Sagittarius",
+        "d9_house": 11,
+        "d10_sign": "Leo",
+        "d10_house": 3
+      }
+    },
+    "d9": {
+      "ascendant_sign": "Aquarius"
+    },
+    "d10": {
+      "ascendant_sign": "Gemini"
+    },
+    "dashas": {
+      "current_mahadasha": {
+        "lord": "Moon",
+        "start_date": "2024-07-24",
+        "end_date": "2034-07-24"
+      },
+      "current_antardasha": {
+        "lord": "Rahu",
+        "start_date": "2025-12-23",
+        "end_date": "2027-06-24"
+      },
+      "current_pratyantardasha": {
+        "lord": "Ketu",
+        "start_date": "2026-11-08",
+        "end_date": "2026-12-10"
+      }
+    },
+    "transits": {
+      "Jupiter": {
+        "sign": "Leo",
+        "house": 12,
+        "nakshatra": "Magha"
+      },
+      "Saturn": {
+        "sign": "Pisces",
+        "house": 7,
+        "nakshatra": "Uttara Bhadrapada"
+      }
+    }
+  },
+  "synthetic-b": {
+    "lagna_sign": "Leo",
+    "planets": {
+      "Sun": {
+        "sign": "Aquarius",
+        "house": 7,
+        "nakshatra": "Shatabhisha",
+        "pada": 2,
+        "d9_sign": "Capricorn",
+        "d9_house": 8,
+        "d10_sign": "Gemini",
+        "d10_house": 8
+      },
+      "Moon": {
+        "sign": "Leo",
+        "house": 1,
+        "nakshatra": "Magha",
+        "pada": 4,
+        "d9_sign": "Cancer",
+        "d9_house": 2,
+        "d10_sign": "Sagittarius",
+        "d10_house": 2
+      },
+      "Mars": {
+        "sign": "Aquarius",
+        "house": 7,
+        "nakshatra": "Purva Bhadrapada",
+        "pada": 2,
+        "d9_sign": "Taurus",
+        "d9_house": 12,
+        "d10_sign": "Libra",
+        "d10_house": 12
+      },
+      "Mercury": {
+        "sign": "Aquarius",
+        "house": 7,
+        "nakshatra": "Purva Bhadrapada",
+        "pada": 2,
+        "d9_sign": "Taurus",
+        "d9_house": 12,
+        "d10_sign": "Libra",
+        "d10_house": 12
+      },
+      "Jupiter": {
+        "sign": "Taurus",
+        "house": 10,
+        "nakshatra": "Rohini",
+        "pada": 2,
+        "d9_sign": "Taurus",
+        "d9_house": 12,
+        "d10_sign": "Taurus",
+        "d10_house": 7
+      },
+      "Venus": {
+        "sign": "Aquarius",
+        "house": 7,
+        "nakshatra": "Dhanishtha",
+        "pada": 4,
+        "d9_sign": "Scorpio",
+        "d9_house": 6,
+        "d10_sign": "Pisces",
+        "d10_house": 5
+      },
+      "Saturn": {
+        "sign": "Libra",
+        "house": 3,
+        "nakshatra": "Swati",
+        "pada": 4,
+        "d9_sign": "Pisces",
+        "d9_house": 10,
+        "d10_sign": "Pisces",
+        "d10_house": 5
+      },
+      "Rahu": {
+        "sign": "Libra",
+        "house": 3,
+        "nakshatra": "Vishakha",
+        "pada": 2,
+        "d9_sign": "Taurus",
+        "d9_house": 12,
+        "d10_sign": "Gemini",
+        "d10_house": 8
+      },
+      "Ketu": {
+        "sign": "Aries",
+        "house": 9,
+        "nakshatra": "Bharani",
+        "pada": 4,
+        "d9_sign": "Scorpio",
+        "d9_house": 6,
+        "d10_sign": "Sagittarius",
+        "d10_house": 2
+      }
+    },
+    "d9": {
+      "ascendant_sign": "Gemini"
+    },
+    "d10": {
+      "ascendant_sign": "Scorpio"
+    },
+    "dashas": {
+      "current_mahadasha": {
+        "lord": "Venus",
+        "start_date": "2013-11-04",
+        "end_date": "2033-11-04"
+      },
+      "current_antardasha": {
+        "lord": "Saturn",
+        "start_date": "2026-09-04",
+        "end_date": "2029-11-04"
+      },
+      "current_pratyantardasha": {
+        "lord": "Saturn",
+        "start_date": "2026-09-04",
+        "end_date": "2027-03-06"
+      }
+    },
+    "transits": {
+      "Jupiter": {
+        "sign": "Leo",
+        "house": 1,
+        "nakshatra": "Magha"
+      },
+      "Saturn": {
+        "sign": "Pisces",
+        "house": 8,
+        "nakshatra": "Uttara Bhadrapada"
+      }
+    }
+  },
+  "synthetic-c": {
+    "lagna_sign": "Virgo",
+    "planets": {
+      "Sun": {
+        "sign": "Aries",
+        "house": 8,
+        "nakshatra": "Ashwini",
+        "pada": 2,
+        "d9_sign": "Taurus",
+        "d9_house": 9,
+        "d10_sign": "Taurus",
+        "d10_house": 4
+      },
+      "Moon": {
+        "sign": "Aquarius",
+        "house": 6,
+        "nakshatra": "Purva Bhadrapada",
+        "pada": 1,
+        "d9_sign": "Aries",
+        "d9_house": 8,
+        "d10_sign": "Leo",
+        "d10_house": 7
+      },
+      "Mars": {
+        "sign": "Sagittarius",
+        "house": 4,
+        "nakshatra": "Mula",
+        "pada": 1,
+        "d9_sign": "Aries",
+        "d9_house": 8,
+        "d10_sign": "Sagittarius",
+        "d10_house": 11
+      },
+      "Mercury": {
+        "sign": "Aries",
+        "house": 8,
+        "nakshatra": "Ashwini",
+        "pada": 1,
+        "d9_sign": "Aries",
+        "d9_house": 8,
+        "d10_sign": "Aries",
+        "d10_house": 3
+      },
+      "Jupiter": {
+        "sign": "Taurus",
+        "house": 9,
+        "nakshatra": "Rohini",
+        "pada": 3,
+        "d9_sign": "Gemini",
+        "d9_house": 10,
+        "d10_sign": "Gemini",
+        "d10_house": 5
+      },
+      "Venus": {
+        "sign": "Pisces",
+        "house": 7,
+        "nakshatra": "Uttara Bhadrapada",
+        "pada": 2,
+        "d9_sign": "Virgo",
+        "d9_house": 1,
+        "d10_sign": "Capricorn",
+        "d10_house": 12
+      },
+      "Saturn": {
+        "sign": "Taurus",
+        "house": 9,
+        "nakshatra": "Krittika",
+        "pada": 3,
+        "d9_sign": "Aquarius",
+        "d9_house": 6,
+        "d10_sign": "Aquarius",
+        "d10_house": 1
+      },
+      "Rahu": {
+        "sign": "Gemini",
+        "house": 10,
+        "nakshatra": "Ardra",
+        "pada": 3,
+        "d9_sign": "Aquarius",
+        "d9_house": 6,
+        "d10_sign": "Scorpio",
+        "d10_house": 10
+      },
+      "Ketu": {
+        "sign": "Sagittarius",
+        "house": 4,
+        "nakshatra": "Purva Ashadha",
+        "pada": 1,
+        "d9_sign": "Leo",
+        "d9_house": 12,
+        "d10_sign": "Taurus",
+        "d10_house": 4
+      }
+    },
+    "d9": {
+      "ascendant_sign": "Virgo"
+    },
+    "d10": {
+      "ascendant_sign": "Aquarius"
+    },
+    "dashas": {
+      "current_mahadasha": {
+        "lord": "Saturn",
+        "start_date": "2016-04-26",
+        "end_date": "2035-04-27"
+      },
+      "current_antardasha": {
+        "lord": "Sun",
+        "start_date": "2026-04-18",
+        "end_date": "2027-03-31"
+      },
+      "current_pratyantardasha": {
+        "lord": "Saturn",
+        "start_date": "2026-09-30",
+        "end_date": "2026-11-24"
+      }
+    },
+    "transits": {
+      "Jupiter": {
+        "sign": "Leo",
+        "house": 12,
+        "nakshatra": "Magha"
+      },
+      "Saturn": {
+        "sign": "Pisces",
+        "house": 7,
+        "nakshatra": "Uttara Bhadrapada"
+      }
+    }
+  }
+}

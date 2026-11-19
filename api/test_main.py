@@ -237,7 +237,7 @@ def test_streaming_ask_saves_checked_answer_facts_and_wallet_charge(client, monk
 
     assert response.status_code == 200, response.text
     events = _sse_events(response)
-    assert [name for name, _ in events][-1] == "complete"
+    assert [name for name, _ in events][-1] == "response_complete"
     complete = events[-1][1]
     assert complete["status"] == "answered"
     assert complete["wallet_balance"] == 0
@@ -251,6 +251,73 @@ def test_streaming_ask_saves_checked_answer_facts_and_wallet_charge(client, monk
     assert history.json()[0]["facts_used"] == complete["facts_used"]
     assert history.json()[0]["llm_provider"] == "gemini"
     assert client.get("/me").json()["question_balance"] == 0
+    assert len(client.get("/history").json()) == 1
+    assert sum(row["reason"] == "question" for row in client.get("/wallet/ledger").json()) == 1
+
+
+def test_provider_failover_in_one_ask_creates_one_answer_and_charges_once(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from api.app.llm.groq import APIKey
+    from api.app.llm.orchestrator import generate_answer as orchestrate
+
+    assert client.post("/auth/register", json={"email": "failover-route@example.com", "password": "a-strong-test-password"}).status_code == 201
+    assert client.post("/profile", json=_profile_payload()).status_code == 200
+    monkeypatch.setenv("GEMINI_MAX_TRANSIENT_RETRIES", "0")
+    private_gemini_key = "private-gemini-key"
+    private_groq_key = "private-groq-key"
+    generated_text = "A gentle reflection may help you consider the possibilities."
+
+    class GeminiClient:
+        class Models:
+            def generate_content_stream(self, **_kwargs):
+                error = RuntimeError("private provider response detail")
+                error.status_code = 503
+                raise error
+
+        models = Models()
+
+        def close(self):
+            pass
+
+    class GroqCompletions:
+        def create(self, **_kwargs):
+            return [
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=generated_text))], usage=None),
+                SimpleNamespace(choices=[], usage=SimpleNamespace(prompt_tokens=12, completion_tokens=10)),
+            ]
+
+    class GroqClient:
+        chat = SimpleNamespace(completions=GroqCompletions())
+
+        def close(self):
+            pass
+
+    def use_real_orchestrator(question, facts, **kwargs):
+        return orchestrate(
+            question, facts,
+            api_keys=[APIKey("GROQ_API_KEY", private_groq_key)],
+            client_factory=lambda _secret: GroqClient(),
+            gemini_api_key=private_gemini_key,
+            gemini_client_factory=lambda _secret: GeminiClient(),
+            stream=kwargs.get("stream", True),
+        )
+
+    monkeypatch.setattr(db_router, "generate_answer", use_real_orchestrator)
+    response = client.post("/ask", json={"question_text": "What might I reflect on?"})
+
+    assert response.status_code == 200
+    events = _sse_events(response)
+    assert [event for event, _ in events].count("response_complete") == 1
+    assert not any(event == "response_error" and not payload.get("restart") for event, payload in events)
+    assert events[-1][1]["answer_text"] == generated_text
+    assert private_gemini_key not in response.text and private_groq_key not in response.text
+    history = client.get("/history").json()
+    assert len(history) == 1
+    assert history[0]["llm_provider"] == "groq"
+    assert history[0]["llm_model"] == "openai/gpt-oss-20b"
+    assert client.get("/wallet").json() == {"balance": 0}
+    assert sum(row["reason"] == "question" for row in client.get("/wallet/ledger").json()) == 1
 
 
 def test_streaming_ask_refunds_credit_and_writes_refund_ledger(client, monkeypatch):
@@ -267,7 +334,7 @@ def test_streaming_ask_refunds_credit_and_writes_refund_ledger(client, monkeypat
     response = client.post("/ask", json={"question_text": "What might my chart suggest?"})
     assert response.status_code == 200
     events = _sse_events(response)
-    assert events[-1][0] == "failed"
+    assert events[-1][0] == "response_error"
     assert events[-1][1]["wallet_balance"] == 1
     assert client.get("/wallet").json() == {"balance": 1}
     ledger = client.get("/wallet/ledger").json()
@@ -295,8 +362,8 @@ def test_retrying_a_refunded_failure_does_not_spend_a_second_credit(client, monk
     retry = client.post("/ask", json={"retry_id": failed["question_id"]})
     events = _sse_events(retry)
     assert retry.status_code == 200
-    assert events[0][0] == "started"
-    assert events[-1][0] == "complete"
+    assert events[0][0] == "response_start"
+    assert events[-1][0] == "response_complete"
     assert client.get("/wallet").json()["balance"] == 1
     assert client.get("/wallet/ledger").json() == ledger_before_retry
     assert client.get("/history").json()[0]["status"] == "answered"

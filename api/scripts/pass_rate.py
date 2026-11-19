@@ -1,7 +1,7 @@
 """Run a small fixed prompt set and summarize provider/checker pass rates.
 
 Run from the api directory with: python -m scripts.pass_rate
-Configured Groq/Gemini keys are read from the process environment by the provider code.
+Gemini is tried first; Groq key rotation is used if Gemini fails. Keys are read from the process environment.
 """
 
 from collections import Counter
@@ -47,12 +47,12 @@ def main() -> None:
     for index, question in enumerate(QUESTIONS, start=1):
         facts = route_question(question, TEST_CHART)
         result = generate_answer(question, facts, stream=False)
-        if result.provider == "fallback":
-            bucket = "fallback"
-        elif result.provider == "gemini":
-            bucket = "gemini"
-        elif result.validation_stage == "regenerated":
+        if not result.succeeded:
+            bucket = "failed"
+        elif "regenerated" in result.validation_stage:
             bucket = "regenerated"
+        elif result.provider == "groq":
+            bucket = "groq_fallback"
         else:
             bucket = "first_try"
         counts[bucket] += 1
@@ -61,8 +61,8 @@ def main() -> None:
     print("\nAnswer pass summary (10 questions)")
     print(f"Passed on first try: {counts['first_try']}")
     print(f"Passed after one regenerate: {counts['regenerated']}")
-    print(f"Passed via Gemini: {counts['gemini']}")
-    print(f"Ended in grounded fallback: {counts['fallback']}")
+    print(f"Passed via Groq failover: {counts['groq_fallback']}")
+    print(f"Ended in graceful provider error: {counts['failed']}")
 
 
 if __name__ == "__main__":

@@ -113,16 +113,34 @@ export function ReadingAnswer({ text, facts, hideCitationIds = true }: { text: s
     return match ? [[match[1].toUpperCase(), match[2]] as const] : [];
   }));
   const marker = /(\[\[[^\]|]+\|M\d{3}\]\]|\[[FM]\d{3}\])/gi;
-  return <p className="whitespace-pre-wrap text-[15px] leading-8 text-ink-soft">{text.split(marker).map((part, index) => {
+  const inline = (value: string, prefix: string) => value.split(marker).flatMap((part, index) => {
     const term = part.match(/^\[\[([^\]|]+)\|(M\d{3})\]\]$/i);
     if (term) {
       const [, label, idRaw] = term; const id = idRaw.toUpperCase(); const meaning = meanings.get(id);
       if (!meaning) return label;
       const isOpen = openTerm === `${id}-${index}`;
-      return <span key={`${id}-${index}`} className="group relative inline-block"><button type="button" aria-expanded={isOpen} aria-label={`${label}: show meaning`} title={meaning} onClick={event => { event.stopPropagation(); setOpenTerm(isOpen ? null : `${id}-${index}`); }} className="cursor-help border-b border-dotted border-[#e989bb] font-medium text-[#f4a8d0] underline decoration-dotted underline-offset-4">{label}</button><span role="tooltip" className={`${isOpen ? 'block' : 'hidden'} absolute bottom-full left-1/2 z-40 mb-2 w-64 -translate-x-1/2 rounded-xl border border-magenta/35 bg-[#1c1320] px-3 py-2 text-left text-xs leading-5 text-ink shadow-xl group-hover:block group-focus-within:block`}>{meaning}{!hideCitationIds && <span className="mt-1 block font-mono text-[10px] text-[#e989bb]">{id}</span>}</span></span>;
+      return <span key={`${prefix}-${id}-${index}`} className="group relative inline-block"><button type="button" aria-expanded={isOpen} aria-label={`${label}: show meaning`} title={meaning} onClick={event => { event.stopPropagation(); setOpenTerm(isOpen ? null : `${id}-${index}`); }} className="cursor-help border-b border-dotted border-[#e989bb] font-medium text-[#f4a8d0] underline decoration-dotted underline-offset-4">{label}</button><span role="tooltip" className={`${isOpen ? 'block' : 'hidden'} absolute bottom-full left-1/2 z-40 mb-2 w-64 -translate-x-1/2 rounded-xl border border-magenta/35 bg-[#1c1320] px-3 py-2 text-left text-xs leading-5 text-ink shadow-xl group-hover:block group-focus-within:block`}>{meaning}{!hideCitationIds && <span className="mt-1 block font-mono text-[10px] text-[#e989bb]">{id}</span>}</span></span>;
     }
     const citation = part.match(/^\[([FM]\d{3})\]$/i);
-    if (citation) return null;
-    return <span key={index}>{part}</span>;
-  })}</p>;
+    if (citation) return [];
+    return [<span key={`${prefix}-${index}`}>{part.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g).map((piece, partIndex) => piece.startsWith('**') && piece.endsWith('**') ? <strong key={partIndex} className="font-semibold text-ink">{piece.slice(2, -2)}</strong> : piece.startsWith('*') && piece.endsWith('*') ? <em key={partIndex}>{piece.slice(1, -1)}</em> : piece.startsWith('`') && piece.endsWith('`') ? <code key={partIndex} className="rounded bg-void-soft px-1 py-0.5 text-[.92em] text-[#f4a8d0]">{piece.slice(1, -1)}</code> : piece)}</span>];
+  });
+  const lines = text.replace(/\r/g, '').split('\n');
+  const blocks: ReactNode[] = [];
+  let paragraph: string[] = [];
+  let list: string[] = [];
+  let ordered = false;
+  const flushParagraph = () => { if (paragraph.length) { blocks.push(<p key={`p-${blocks.length}`} className="text-[15px] leading-7 text-ink-soft">{inline(paragraph.join(' '), `p-${blocks.length}`)}</p>); paragraph = []; } };
+  const flushList = () => { if (list.length) { const List = ordered ? 'ol' : 'ul'; blocks.push(<List key={`l-${blocks.length}`} className={`my-2 space-y-1 pl-5 text-[15px] leading-7 text-ink-soft ${ordered ? 'list-decimal' : 'list-disc'}`}>{list.map((item, index) => <li key={index}>{inline(item, `l-${blocks.length}-${index}`)}</li>)}</List>); list = []; } };
+  lines.forEach((line, index) => {
+    const heading = line.match(/^#{1,4}\s+(.+)$/);
+    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
+    const number = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (heading) { flushParagraph(); flushList(); blocks.push(<h3 key={`h-${index}`} className="mt-2 font-display text-lg leading-7 text-ink">{inline(heading[1], `h-${index}`)}</h3>); }
+    else if (bullet || number) { flushParagraph(); const nextOrdered = Boolean(number); if (list.length && ordered !== nextOrdered) flushList(); ordered = nextOrdered; list.push((bullet || number)![1]); }
+    else if (!line.trim()) { flushParagraph(); flushList(); }
+    else { flushList(); paragraph.push(line.trim()); }
+  });
+  flushParagraph(); flushList();
+  return <div className="space-y-2">{blocks}</div>;
 }

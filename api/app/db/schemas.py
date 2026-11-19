@@ -146,6 +146,7 @@ class QuestionHistoryItem(BaseModel):
     id: int
     question_text: str
     answer_text: str | None
+    answer_sections: list[dict[str, str]] | None = None
     status: str
     rating: int | None
     facts_used: list[str]

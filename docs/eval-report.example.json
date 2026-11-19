@@ -1,0 +1,90 @@
+{
+  "schema_version": 2,
+  "as_of": "2026-11-15T12:00:00+00:00",
+  "summary": {
+    "questions": 1,
+    "by_provider": {
+      "groq": {
+        "questions": 1,
+        "factual_accuracy": 1.0,
+        "grounding_rate": 1.0,
+        "critical_failures": 0,
+        "average_generation_ms": 0.02,
+        "average_writer_tokens": 38,
+        "average_total_tokens": 118,
+        "average_writer_cost_usd": "0.000006",
+        "average_cost_per_answer_usd": "0.000074",
+        "average_judge_scores": {
+          "relevance": 5,
+          "clarity": 5,
+          "completeness": 4,
+          "consistency": 5,
+          "grounding": 5,
+          "certainty_avoidance": 5
+        },
+        "interpretation_quality": 4.666666666666667
+      }
+    }
+  },
+  "previous_run_delta": null,
+  "thresholds": {
+    "groq critical factual checks": {
+      "passed": true,
+      "detail": "0 critical violations"
+    },
+    "groq factual accuracy": {
+      "passed": true,
+      "detail": "100.0% >= 100.0%"
+    },
+    "groq grounding": {
+      "passed": true,
+      "detail": "100.0% >= 100.0%"
+    },
+    "groq interpretation quality": {
+      "passed": true,
+      "detail": "4.67 >= 3.00"
+    }
+  },
+  "records": [
+    {
+      "case_id": "synthetic-a-ascendant",
+      "chart": "synthetic-a",
+      "category": "basic",
+      "question": "What is my ascendant sign?",
+      "answer": "Your ascendant is Virgo [F001]. This is a chart starting point for reflection.",
+      "writer_provider": "groq",
+      "writer_model": "mock-groq-writer",
+      "judge_model": "mock-gemini-judge",
+      "judge_scores": {
+        "relevance": 5,
+        "clarity": 5,
+        "completeness": 4,
+        "consistency": 5,
+        "grounding": 5,
+        "certainty_avoidance": 5
+      },
+      "judge_error": null,
+      "generation_ms": 0.02,
+      "factual_pass": true,
+      "grounding_pass": true,
+      "critical_factual_failure": false,
+      "violations": [],
+      "missing_expected": [],
+      "missing_acknowledgment": false,
+      "checker_passed": true,
+      "fallback_template_used": false,
+      "banned_phrases_present": false,
+      "citations_present": true,
+      "citation_ids": [
+        "F001"
+      ],
+      "writer_tokens": 38,
+      "writer_cost_usd": "0.000006",
+      "judge_tokens": 80,
+      "judge_cost_usd": "0.000068",
+      "total_tokens": 118,
+      "total_cost_usd": "0.000074",
+      "generation_stage": "first_try"
+    }
+  ]
+}

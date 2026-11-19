@@ -9,9 +9,9 @@ import { ChartDiagram, ShareChartButton } from './chart-diagram';
 import { selectVisibleChartMessages } from './chart-diagram-data.mjs';
 
 type Profile = { display_name: string | null; label: string; birth_date?: string; birth_time?: string; birth_time_unknown?: boolean; location?: string };
-type HistoryEntry = { id: number; question_text: string; answer_text: string | null; status: string; rating: number | null; facts_used: string[]; highlighted_houses?: number[]; created_at: string };
+type HistoryEntry = { id: number; question_text: string; answer_text: string | null; answer_sections?: { id?: string; title: string; text: string }[] | null; status: string; rating: number | null; facts_used: string[]; highlighted_houses?: number[]; created_at: string };
 type MessageState = 'greeting' | 'typing' | 'streaming' | 'done' | 'out_of_balance' | 'error' | 'pending';
-type ChatMessage = { key: string; role: 'user' | 'assistant'; text: string; questionId?: number; facts?: string[]; highlightedHouses?: number[]; rating?: number | null; state?: MessageState; retryText?: string; waitingStage?: 'waking' | 'waiting' };
+type ChatMessage = { key: string; role: 'user' | 'assistant'; text: string; sectionTitle?: string; sectionIndex?: number; sectionCount?: number; questionId?: number; facts?: string[]; highlightedHouses?: number[]; rating?: number | null; state?: MessageState; retryText?: string; waitingStage?: 'waking' | 'waiting' };
 type DailyInsight = { id: number; run_date: string; answer_text: string; facts_used: string[]; streak_days: number; llm_provider: string; llm_model: string };
 
 const PAGE_SIZE = 20;
@@ -51,7 +51,8 @@ function fromHistory(entries: HistoryEntry[]): ChatMessage[] {
     } else if (entry.status === 'pending') {
       reply = { key: `a-${entry.id}`, role: 'assistant', text: '', questionId: entry.id, facts: entry.facts_used || [], state: 'pending', retryText: entry.question_text };
     } else {
-      reply = { key: `a-${entry.id}`, role: 'assistant', text: entry.answer_text || '', questionId: entry.id, facts: entry.facts_used || [], highlightedHouses: entry.highlighted_houses || [], rating: entry.rating, state: 'done' };
+      const sections = entry.answer_sections?.length ? entry.answer_sections : [{ title: '', text: entry.answer_text || '' }];
+      return [user, ...sections.map((section, index): ChatMessage => ({ key: `a-${entry.id}-s${index + 1}`, role: 'assistant', text: section.text, sectionTitle: section.title, sectionIndex: index + 1, sectionCount: sections.length, questionId: entry.id, facts: entry.facts_used || [], highlightedHouses: entry.highlighted_houses || [], rating: entry.rating, state: 'done' }))];
     }
     return [user, reply];
   });
@@ -383,18 +384,20 @@ export function ChatApp({ profile, chartFacts = [], language = 'English', balanc
       setMessages(current => {
         const userMessage = current.find(item => item.key === messageKey);
         if (match.status === 'answered') {
-          const assistant: ChatMessage = { key: `a-${match.id}`, role: 'assistant', text: match.answer_text || '', questionId: match.id, facts: match.facts_used, rating: match.rating, state: 'done' };
-          return [...current.filter(item => item.key !== replyKey && item.key !== `q-${messageKey}`), ...(userMessage ? [{ ...userMessage, key: `q-${match.id}`, questionId: match.id }] : []), assistant];
+          const sections = match.answer_sections?.length ? match.answer_sections : [{ title: '', text: match.answer_text || '' }];
+          const replies = sections.map((section, index): ChatMessage => ({ key: `a-${match.id}-s${index + 1}`, role: 'assistant', text: section.text, sectionTitle: section.title, sectionIndex: index + 1, sectionCount: sections.length, questionId: match.id, facts: match.facts_used || [], highlightedHouses: match.highlighted_houses || [], rating: match.rating, state: 'done' }));
+          return [...current.filter(item => item.key !== replyKey && item.key !== `q-${messageKey}` && (item.questionId !== match.id || item.role === 'user')), ...(userMessage ? [{ ...userMessage, key: `q-${match.id}`, questionId: match.id }] : []), ...replies];
         }
         const state: MessageState = match.status === 'draft' ? 'out_of_balance' : match.status === 'failed' ? 'error' : 'pending';
         const assistant: ChatMessage = { key: `a-${match.id}`, role: 'assistant', text: state === 'out_of_balance' ? 'I saved your question. Add questions and I’ll answer it automatically.' : state === 'error' ? 'Couldn’t reach the stars. Tap to retry.' : '', questionId: match.id, facts: match.facts_used || [], state, retryText: match.question_text };
-        return [...current.filter(item => item.key !== replyKey && item.key !== `q-${messageKey}`), ...(userMessage ? [{ ...userMessage, key: `q-${match.id}`, questionId: match.id }] : []), assistant];
+        return [...current.filter(item => item.key !== replyKey && item.key !== `q-${messageKey}` && !(item.questionId === match.id && item.role === 'assistant')), ...(userMessage ? [{ ...userMessage, key: `q-${match.id}`, questionId: match.id }] : []), assistant];
       });
     } catch { /* The inline retry remains available when synchronization is temporarily offline. */ }
   }
 
   async function streamAnswer(options: { userKey: string; assistantKey: string; questionText: string; draftId?: number; retryId?: number }) {
     setBusy(true); setComposerError(''); setCreditMessage(''); atBottomRef.current = true; setShowNewMessage(false);
+    let streamQuestionId: number | undefined;
     let activeAssistantKey = options.assistantKey;
     updateMessage(activeAssistantKey, item => ({ ...item, state: 'typing', text: '', waitingStage: undefined, retryText: options.questionText }));
     const controller = new AbortController();
@@ -431,13 +434,6 @@ export function ChatApp({ profile, chartFacts = [], language = 'English', balanc
       }
       if (!response.ok || !response.body) throw new Error('network');
       const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let failed = false; let streamId: number | undefined;
-      async function appendWordByWord(text: string) {
-        const words = text.match(/\S+\s*/g) || [text];
-        for (const word of words) {
-          updateMessage(activeAssistantKey, item => ({ ...item, state: 'streaming', text: item.text + word, waitingStage: undefined }));
-          await new Promise(resolve => window.setTimeout(resolve, 24));
-        }
-      }
       while (true) {
         const { value, done } = await reader.read(); if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -445,41 +441,53 @@ export function ChatApp({ profile, chartFacts = [], language = 'English', balanc
         for (const event of events) {
           const eventName = event.match(/^event: (.+)$/m)?.[1]; const raw = event.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
           const payload = JSON.parse(raw);
-          if (eventName === 'started') {
-            streamId = payload.question_id; setWallet(payload.wallet_balance ?? balance);
-            const stableQuestion = `q-${streamId}`; const stableReply = `a-${streamId}`;
-            activeAssistantKey = stableReply;
-            setMessages(current => current.map(message => message.key === options.userKey ? { ...message, key: stableQuestion, questionId: streamId } : message.key === options.assistantKey ? { ...message, key: stableReply, questionId: streamId } : message));
+          if (eventName === 'response_start') {
+            streamId = payload.question_id; streamQuestionId = streamId; setWallet(payload.wallet_balance ?? balance);
+            const stableQuestion = `q-${streamId}`;
+            activeAssistantKey = `typing-${streamId}`;
+            setMessages(current => current.filter(message => message.key !== options.assistantKey && !(message.questionId === streamId && message.role === 'assistant') && message.key !== `a-${streamId}` && !message.key.startsWith(`a-${streamId}-s`)).map(message => message.key === options.userKey ? { ...message, key: stableQuestion, questionId: streamId } : message).concat({ key: activeAssistantKey, role: 'assistant', text: '', questionId: streamId, state: 'typing', retryText: options.questionText }));
           }
-          if (eventName === 'meta') {
-            streamId = payload.question_id; setWallet(payload.wallet_balance ?? balance);
-            const stableReply = `a-${streamId}`;
-            activeAssistantKey = stableReply;
-            setMessages(current => current.map(message => message.key === options.assistantKey || message.key === stableReply ? { ...message, key: stableReply, questionId: streamId, facts: payload.facts_used || [], highlightedHouses: payload.highlighted_houses || [], state: 'typing' } : message));
-          }
-          if (eventName === 'chunk' && payload.text) { cancelWaitTimers(); await appendWordByWord(payload.text); }
-          if (eventName === 'complete') {
-            setWallet(payload.wallet_balance ?? balance);
-            const stableReply = `a-${payload.question_id}`;
+          if (eventName === 'message_start') {
             cancelWaitTimers();
-            setMessages(current => current.map(message => message.key === options.assistantKey || message.key === stableReply ? { ...message, key: stableReply, questionId: payload.question_id, text: payload.answer_text || message.text, facts: payload.facts_used || message.facts || [], highlightedHouses: payload.highlighted_houses || message.highlightedHouses || [], state: 'done', waitingStage: undefined } : message));
+            const key = `a-${payload.id}`;
+            setMessages(current => [...current.filter(message => message.key !== `typing-${payload.question_id}`), { key, role: 'assistant', text: '', sectionTitle: payload.title, questionId: payload.question_id, state: 'streaming', retryText: options.questionText }]);
           }
-          if (eventName === 'failed') {
-            failed = true; setWallet(payload.wallet_balance ?? balance);
-            const stableReply = `a-${payload.question_id || streamId}`;
-            activeAssistantKey = stableReply;
-            cancelWaitTimers();
-            setMessages(current => current.map(message => message.key === options.assistantKey || message.key === stableReply ? { ...message, key: stableReply, questionId: payload.question_id || streamId, text: 'Couldn’t reach the stars. Tap to retry.', state: 'error', waitingStage: undefined, retryText: options.questionText } : message));
+          if (eventName === 'message_delta' && payload.text) setMessages(current => current.map(message => message.key === `a-${payload.id}` ? { ...message, text: message.text + payload.text, state: 'streaming' } : message));
+          if (eventName === 'message_complete') {
+            const key = `a-${payload.id}`;
+            setMessages(current => [...current.map(message => message.key === key ? { ...message, state: 'done' as const } : message).filter(message => message.key !== `typing-${payload.question_id}`), { key: `typing-${payload.question_id}`, role: 'assistant', text: '', questionId: payload.question_id, state: 'typing', retryText: options.questionText }]);
           }
+          if (eventName === 'response_error' && payload.restart) setMessages(current => [...current.filter(message => message.questionId !== payload.question_id || message.role === 'user'), { key: `typing-${payload.question_id}`, role: 'assistant', text: '', questionId: payload.question_id, state: 'typing', retryText: options.questionText }]);
+          if (eventName === 'response_complete') {
+            setWallet(payload.wallet_balance ?? balance); cancelWaitTimers();
+            const sections = payload.sections || [];
+            setMessages(current => current.filter(message => message.key !== `typing-${payload.question_id}`).map(message => {
+              if (message.questionId !== payload.question_id || message.role !== 'assistant') return message;
+              const index = sections.findIndex((section: { id: string }) => `a-${section.id}` === message.key);
+              return { ...message, sectionIndex: index < 0 ? undefined : index + 1, sectionCount: sections.length, facts: payload.facts_used || [], highlightedHouses: payload.highlighted_houses || [], state: 'done' as const };
+            }));
+          }
+          if (eventName === 'response_error' && !payload.restart) {
+            failed = true; setWallet(payload.wallet_balance ?? balance); cancelWaitTimers();
+            setMessages(current => [...current.filter(message => message.questionId !== payload.question_id || message.role === 'user'), { key: `a-${payload.question_id}-error`, role: 'assistant', text: 'Couldn’t reach the stars. Tap to retry.', questionId: payload.question_id, state: 'error', retryText: options.questionText }]);
+          }
+          // Keep compatibility with older API instances during rolling local development.
+          if (eventName === 'started') { streamId = payload.question_id; streamQuestionId = streamId; setWallet(payload.wallet_balance ?? balance); }
+          if (eventName === 'meta') { streamId = payload.question_id; setMessages(current => current.map(message => message.questionId === streamId ? { ...message, facts: payload.facts_used || [], highlightedHouses: payload.highlighted_houses || [] } : message)); }
+          if (eventName === 'chunk' && payload.text) setMessages(current => current.map(message => message.key === activeAssistantKey ? { ...message, state: 'streaming', text: message.text + payload.text } : message));
+          if (eventName === 'complete') { cancelWaitTimers(); setMessages(current => current.map(message => message.questionId === payload.question_id && message.role === 'assistant' ? { ...message, facts: payload.facts_used || [], state: 'done' } : message)); }
+          if (eventName === 'failed') failed = true;
         }
       }
+
       if (streamId) {
         try { const recent = await loadEntries(0); setEntries(current => [...recent, ...current.filter(item => !recent.some(entry => entry.id === item.id))]); } catch { /* The streamed reply is still displayed. */ }
       }
       if (failed) updateMessage(activeAssistantKey, item => ({ ...item, state: 'error' }));
     } catch {
       if (!timedOut) {
-        updateMessage(activeAssistantKey, item => ({ ...item, state: 'error', text: 'Couldn’t reach the stars. Tap to retry.', waitingStage: undefined, retryText: options.questionText }));
+        if (streamQuestionId) setMessages(current => [...current.filter(item => item.questionId !== streamQuestionId || item.role === 'user'), { key: `a-${streamQuestionId}-error`, role: 'assistant', text: 'Couldn’t reach the stars. Tap to retry.', questionId: streamQuestionId, state: 'error', retryText: options.questionText }]);
+        else updateMessage(activeAssistantKey, item => ({ ...item, state: 'error', text: 'Couldn’t reach the stars. Tap to retry.', waitingStage: undefined, retryText: options.questionText }));
         await reconcileQuestion(options.questionText, options.userKey);
       }
     } finally { cancelWaitTimers(); setBusy(false); }
@@ -631,9 +639,9 @@ export function ChatApp({ profile, chartFacts = [], language = 'English', balanc
         </section>
         {messages.map((message, messageIndex) => message.role === 'user' ? <div key={message.key} id={message.questionId ? `chat-question-${message.questionId}` : undefined} className="mb-5 flex justify-end"><div className="max-w-[86%] rounded-[1.35rem] rounded-br-md border border-[#814b72]/30 bg-[#422039] px-4 py-3 text-sm leading-6 text-[#fff5fb] shadow-[0_10px_35px_-25px_#e52a91] sm:max-w-[78%]">{message.text}</div></div> : <div key={message.key} id={message.questionId ? `chat-reply-${message.questionId}` : undefined} className="mb-6 flex items-start gap-2.5 sm:gap-3"><BrandMark small/><div className="min-w-0 max-w-[90%] flex-1 sm:max-w-[86%]">
           {message.state === 'typing' || message.state === 'pending' ? <TypingIndicator stage={message.waitingStage}/> : <div className="rounded-[1.35rem] rounded-tl-md border border-line bg-[#151119] px-4 py-3.5 text-sm leading-7 text-ink-soft shadow-[0_12px_40px_-34px_#d4a2cc] sm:px-5 sm:py-4">
-            {message.state === 'greeting' ? <><p className="font-display text-lg leading-7 text-ink">What&apos;s on your mind today?</p><div className="mt-4 flex flex-wrap gap-2">{suggestions.map(item=><button key={item} disabled={busy} onClick={()=>void sendQuestion(item)} className="rounded-full border border-line bg-[#1c1721] px-3.5 py-2 text-left text-[11px] leading-4 text-ink-soft transition hover:border-magenta/50 hover:text-white disabled:opacity-50">{item}<span className="ml-1 text-magenta-bright">↗</span></button>)}</div></> : message.state === 'error' ? <><p className="text-ink">Couldn’t reach the stars.</p><p className="mt-1 text-xs text-muted">This one was free; you were not charged.</p><Button variant="secondary" onClick={()=>void retryMessage(message)} disabled={busy || !message.retryText} className="mt-3 min-h-9 px-3.5 text-xs">↻ Tap to retry</Button></> : message.state === 'out_of_balance' ? <><p className="text-ink">I saved your question. Add questions and I&apos;ll answer it automatically.</p><Button onClick={()=>{setCreditError('');setCreditOpen(true);}} className="mt-3 min-h-9 px-3.5 text-xs">Add questions · free test credits</Button></> : <>{message.state === 'done' && chartVisible[messageIndex] && <div className="mb-3 w-full max-w-[250px] overflow-hidden rounded-xl" style={{ width: 250, aspectRatio: '1 / 1' }}><ChartDiagram facts={chartFacts.length ? chartFacts : message.facts || []} highlightHouses={message.highlightedHouses || []} size="small" language={language} showLabels={false} onExpand={()=>setChartFor(message)} onFactSelect={selected=>openFacts({...message,facts:[selected]})}/></div>}<ReadingAnswer text={message.text} facts={message.facts || []}/></>}
+            {message.state === 'greeting' ? <><p className="font-display text-lg leading-7 text-ink">What&apos;s on your mind today?</p><div className="mt-4 flex flex-wrap gap-2">{suggestions.map(item=><button key={item} disabled={busy} onClick={()=>void sendQuestion(item)} className="rounded-full border border-line bg-[#1c1721] px-3.5 py-2 text-left text-[11px] leading-4 text-ink-soft transition hover:border-magenta/50 hover:text-white disabled:opacity-50">{item}<span className="ml-1 text-magenta-bright">↗</span></button>)}</div></> : message.state === 'error' ? <><p className="text-ink">Couldn’t reach the stars.</p><p className="mt-1 text-xs text-muted">This one was free; you were not charged.</p><Button variant="secondary" onClick={()=>void retryMessage(message)} disabled={busy || !message.retryText} className="mt-3 min-h-9 px-3.5 text-xs">↻ Tap to retry</Button></> : message.state === 'out_of_balance' ? <><p className="text-ink">I saved your question. Add questions and I&apos;ll answer it automatically.</p><Button onClick={()=>{setCreditError('');setCreditOpen(true);}} className="mt-3 min-h-9 px-3.5 text-xs">Add questions · free test credits</Button></> : <>{message.state === 'done' && (!message.sectionIndex || message.sectionIndex === 1) && chartVisible[messageIndex] && <div className="mb-3 w-full max-w-[250px] overflow-hidden rounded-xl" style={{ width: 250, aspectRatio: '1 / 1' }}><ChartDiagram facts={chartFacts.length ? chartFacts : message.facts || []} highlightHouses={message.highlightedHouses || []} size="small" language={language} showLabels={false} onExpand={()=>setChartFor(message)} onFactSelect={selected=>openFacts({...message,facts:[selected]})}/></div>}{message.sectionTitle && <h3 className="mb-1 font-display text-lg text-ink">{message.sectionTitle}</h3>}<ReadingAnswer text={message.text} facts={message.facts || []}/></>}
           </div>}
-          {message.state === 'done' && <div className="mt-2 flex flex-wrap items-center gap-2 pl-1">{message.questionId && <RatingButtons rating={message.rating ?? null} onRate={value=>void rateAnswer(message.questionId!, value)}/>}<button onClick={()=>openFacts(message)} className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-panel px-3 py-1.5 text-[11px] font-medium text-ink-soft hover:border-magenta/40 hover:text-white"><span aria-hidden="true">✧</span> See chart facts</button><ListenButton text={message.text} language={language}/></div>}
+          {message.state === 'done' && <div className="mt-2 flex flex-wrap items-center gap-2 pl-1">{(!message.sectionIndex || message.sectionIndex === message.sectionCount) && message.questionId && <RatingButtons rating={message.rating ?? null} onRate={value=>void rateAnswer(message.questionId!, value)}/>}<button hidden={Boolean(message.sectionIndex && message.sectionIndex !== message.sectionCount)} onClick={()=>openFacts(message)} className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line bg-panel px-3 py-1.5 text-[11px] font-medium text-ink-soft hover:border-magenta/40 hover:text-white"><span aria-hidden="true">✧</span> See chart facts</button><ListenButton text={message.text} language={language}/></div>}
         </div></div>)}
         {composerError && <div role="status" className="mb-5 rounded-xl border border-danger/20 bg-danger/10 px-4 py-2.5 text-xs text-danger">{composerError}<button onClick={()=>setComposerError('')} className="ml-2 underline">Dismiss</button></div>}
         <div aria-live="polite" className="sr-only">{busy?'Melooha is responding.':''}</div>

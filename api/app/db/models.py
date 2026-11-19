@@ -86,6 +86,7 @@ class Question(Base):
     birth_profile_id: Mapped[int | None] = mapped_column(ForeignKey("birth_profiles.id", ondelete="SET NULL"), nullable=True, index=True)
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_sections: Mapped[list[dict[str, str]] | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="answered")
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     facts_used: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)

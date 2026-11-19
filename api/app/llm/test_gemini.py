@@ -1,4 +1,7 @@
 from types import SimpleNamespace
+import logging
+
+import pytest
 
 from api.app.llm.groq import APIKey, generate_answer
 
@@ -38,7 +41,13 @@ class FakeGeminiClient:
         pass
 
 
-def test_gemini_fallback_after_groq_key_failure_uses_only_question_and_chart_facts():
+class ProviderStatusError(Exception):
+    def __init__(self, status_code):
+        super().__init__(f"private provider detail {status_code}")
+        self.status_code = status_code
+
+
+def test_gemini_primary_uses_only_question_and_chart_facts_and_skips_groq():
     facts = ["F001 : Lagna is Scorpio", "F005 : Jupiter in house 10 (Leo), direct, nakshatra Magha"]
     gemini = FakeGeminiClient([stream("Jupiter may suggest a tendency for thoughtful growth [F005][F001].")])
     answer = generate_answer(
@@ -91,7 +100,7 @@ def test_gemini_retries_validation_failure_then_returns_corrected_answer():
     assert answer.total_tokens == 270
 
 
-def test_gemini_failure_returns_friendly_failure_without_raw_error(caplog):
+def test_gemini_failure_falls_through_to_graceful_error_without_raw_error(caplog):
     gemini = FakeGeminiClient([RuntimeError("secret credential details")])
     answer = generate_answer(
         "What does the chart suggest?",
@@ -100,7 +109,91 @@ def test_gemini_failure_returns_friendly_failure_without_raw_error(caplog):
         gemini_api_key="fake-gemini-key",
         gemini_client_factory=lambda _: gemini,
     )
-    assert answer.succeeded is True
-    assert answer.provider == "fallback"
-    assert "temporarily unavailable" not in answer.answer
+    assert answer.succeeded is False
+    assert answer.provider == "none"
+    assert "temporarily unavailable" in answer.answer
     assert "secret credential details" not in caplog.text
+
+
+@pytest.mark.parametrize("gemini_error,retry_limit", [
+    (ProviderStatusError(429), "0"),
+    (TimeoutError("private timeout details"), "0"),
+    (ProviderStatusError(500), "0"),
+    (ProviderStatusError(401), "1"),
+    (ProviderStatusError(400), "1"),
+])
+def test_gemini_errors_fall_through_to_groq_without_retrying_invalid_requests(gemini_error, retry_limit, monkeypatch, caplog):
+    from api.app.llm.groq import APIKey
+
+    monkeypatch.setenv("GEMINI_MAX_TRANSIENT_RETRIES", retry_limit)
+    monkeypatch.setenv("LLM_RETRY_BASE_DELAY_SECONDS", "0")
+    facts = ["F005 : Jupiter in house 10 (Leo), direct, nakshatra Magha"]
+    gemini = FakeGeminiClient([gemini_error])
+    groq_calls = []
+    answer_text = "Jupiter may support learning and perspective [F005][M017]."
+    groq_response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=answer_text))],
+        usage=SimpleNamespace(prompt_tokens=12, completion_tokens=10),
+    )
+
+    class FakeGroqCompletions:
+        def create(self, **kwargs):
+            groq_calls.append(kwargs)
+            return groq_response
+
+    class FakeGroqClient:
+        chat = SimpleNamespace(completions=FakeGroqCompletions())
+
+        def close(self):
+            pass
+
+    with caplog.at_level(logging.WARNING):
+        answer = generate_answer(
+            "What does Jupiter suggest?", facts,
+            api_keys=[APIKey("GROQ_API_KEY", "private-groq-key")],
+            client_factory=lambda _: FakeGroqClient(),
+            gemini_api_key="private-gemini-key",
+            gemini_client_factory=lambda _: gemini,
+            stream=False,
+        )
+
+    assert answer.succeeded is True
+    assert answer.provider == "groq"
+    assert len(gemini.models.calls) == (2 if retry_limit == "1" and isinstance(gemini_error, ProviderStatusError) and gemini_error.status_code == 500 else 1)
+    assert len(groq_calls) == 1
+    assert "private-groq-key" not in caplog.text
+    assert "private-gemini-key" not in caplog.text
+    assert "private provider detail" not in caplog.text
+
+
+def test_gemini_transient_retry_uses_exponential_backoff_then_keeps_primary(monkeypatch):
+    monkeypatch.setenv("GEMINI_MAX_TRANSIENT_RETRIES", "1")
+    monkeypatch.setenv("LLM_RETRY_BASE_DELAY_SECONDS", "0.25")
+    delays = []
+    monkeypatch.setattr("api.app.llm.gemini.time.sleep", delays.append)
+    facts = ["F005 : Jupiter in house 10 (Leo), direct, nakshatra Magha"]
+    gemini = FakeGeminiClient([
+        ProviderStatusError(503),
+        stream("Jupiter may support learning and perspective [F005][M017]."),
+    ])
+    answer = generate_answer(
+        "What does Jupiter suggest?", facts,
+        api_keys=[], gemini_api_key="private-gemini-key",
+        gemini_client_factory=lambda _: gemini,
+    )
+    assert answer.succeeded and answer.provider == "gemini"
+    assert len(gemini.models.calls) == 2
+    assert delays == [0.25]
+
+
+def test_gemini_sdk_timeout_is_configured_and_sdk_retries_are_disabled(monkeypatch):
+    from google import genai
+
+    from api.app.llm import gemini as gemini_provider
+
+    captured = {}
+    monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "7.5")
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: captured.update(kwargs) or object())
+    gemini_provider._default_client("private-key")
+    assert captured["http_options"]["timeout"] == 7500
+    assert captured["http_options"]["retry_options"]["attempts"] == 1

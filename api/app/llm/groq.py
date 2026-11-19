@@ -10,8 +10,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Sequence
 
-from .validation import safe_fact_answer, validate_answer
+from .validation import safe_violation_codes, validate_answer
 from .routing import route_question
+from .provider_errors import classify_provider_error, retry_delay
+from .sections import SectionParser, section_answer
 
 LOGGER = logging.getLogger("melooha.llm.groq")
 DEFAULT_MODEL = "openai/gpt-oss-20b"
@@ -46,6 +48,7 @@ class LLMAnswer:
     usage_is_estimated: bool
     succeeded: bool
     validation_stage: str = "first_try"
+    failure_reason: str | None = None
 
 
 class _StreamInterrupted(Exception):
@@ -123,12 +126,15 @@ def _messages(question: str, facts: Sequence[str]) -> list[dict[str, str]]:
                 "the facts cannot establish an exact event date. Do not invent or assume any placement, "
                 "ruler, dasha, transit, date, or meaning. "
                 "Every planet, house, sign, and date must match a supplied fact. Explain technical terms "
+                "Treat D1, D9, and D10 as separate charts; only use a placement fact when its division label matches the question, and never substitute a D1 placement for D9 or D10. State chart placements as supplied facts and keep interpretations clearly framed as tendencies. "
                 "briefly in plain English. On the first use of a term with a supplied M meaning, wrap it "
                 "exactly like [[Mahadasha|M035]]; use only an M ID actually included in the facts. The "
                 "app turns this into a tappable/hover definition. Do not make guarantees or certain "
                 "predictions. Describe tendencies and possibilities, never certainties. Avoid definitely, "
                 "guaranteed, certainly, will, must, always, and never. If a chart fact does not support "
-                "the requested timing, say so clearly and offer the closest supported window."
+                "the requested timing, say so clearly and offer the closest supported window. "
+                "Structure this as a few useful semantic sections chosen for the question, not a fixed template. "
+                "Mark each section exactly as [[SECTION: short title]] followed by its content, ending with [[/SECTION]]."
             ),
         },
         {
@@ -141,18 +147,35 @@ def _messages(question: str, facts: Sequence[str]) -> list[dict[str, str]]:
 def _default_client(api_key: str):
     from groq import Groq
 
-    return Groq(api_key=api_key, timeout=20.0, max_retries=0)
+    timeout = _positive_float_env("GROQ_TIMEOUT_SECONDS", 20.0)
+    return Groq(api_key=api_key, timeout=timeout, max_retries=0)
 
 
-def _extract_response(response: Any, *, stream: bool, prompt_text: str) -> tuple[str, Any]:
+def _positive_float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _extract_response(response: Any, *, stream: bool, prompt_text: str, facts: Sequence[str] = (), on_section: Callable[[str, str], None] | None = None) -> tuple[str, Any]:
     if not stream:
         choices = _read(response, "choices", []) or []
         if not choices:
             return "", _read(response, "usage")
         message = _read(choices[0], "message")
-        return str(_read(message, "content") or "").strip(), _read(response, "usage")
+        raw = str(_read(message, "content") or "").strip()
+        parser = SectionParser()
+        sections = parser.feed(raw, final=True)
+        if on_section:
+            for section in sections:
+                if section.text and not validate_answer(section.text, facts):
+                    on_section(section.title, section.text)
+        return (section_answer(sections) if sections else raw), _read(response, "usage")
 
     chunks: list[str] = []
+    parser = SectionParser()
     usage = None
     # Buffer per key: on a broken stream its partial text is thrown away before failover.
     try:
@@ -163,10 +186,22 @@ def _extract_response(response: Any, *, stream: bool, prompt_text: str) -> tuple
                 delta = _read(choice, "delta")
                 content = _read(delta, "content")
                 if content:
-                    chunks.append(str(content))
+                    value = str(content)
+                    chunks.append(value)
+                    if on_section:
+                        for section in parser.feed(value):
+                            if section.text and not validate_answer(section.text, facts):
+                                on_section(section.title, section.text)
     except Exception as error:
         raise _StreamInterrupted(error, "".join(chunks), usage) from error
-    return "".join(chunks).strip(), usage
+    if on_section:
+        for section in parser.feed("", final=True):
+            if section.text and not validate_answer(section.text, facts):
+                on_section(section.title, section.text)
+    raw = "".join(chunks).strip()
+    parsed = SectionParser()
+    sections = parsed.feed(raw, final=True)
+    return (section_answer(sections) if sections else raw), usage
 
 
 def _safe_status(error: Exception) -> str:
@@ -178,7 +213,7 @@ def _safe_status(error: Exception) -> str:
     return type(error).__name__
 
 
-def generate_answer(
+def generate_groq_answer(
     question: str,
     facts: Sequence[str],
     *,
@@ -186,11 +221,10 @@ def generate_answer(
     model: str | None = None,
     stream: bool = True,
     client_factory: Callable[[str], Any] | None = None,
-    gemini_api_key: str | None = None,
-    gemini_model: str | None = None,
-    gemini_client_factory: Callable[[str], Any] | None = None,
+    on_section: Callable[[str, str], None] | None = None,
+    on_reset: Callable[[], None] | None = None,
 ) -> LLMAnswer:
-    """Try ordered Groq keys, then Gemini, validating before returning an answer.
+    """Try ordered Groq keys, validating before returning an answer.
 
     Streaming is buffered internally, allowing a later key to replace a stream that failed
     after emitting some chunks without exposing a duplicated or partial answer.
@@ -201,8 +235,6 @@ def generate_answer(
     keys = list(api_keys) if api_keys is not None else configured_keys()
     factory = client_factory or _default_client
     if not question.strip() or not facts:
-        reason = "missing_question" if not question.strip() else "missing_chart_facts"
-        LOGGER.warning("Returning friendly fallback reason=%s", reason)
         return LLMAnswer(FALLBACK_MESSAGE, "groq", selected_model, None, 0, 0, 0, Decimal("0"), False, False)
     fallback_failures: list[str] = []
     if not keys:
@@ -216,6 +248,7 @@ def generate_answer(
     cost_total: Decimal | None = Decimal("0")
     any_estimated = False
     validation_stage = "first_try"
+    transient_failures = 0
 
     def add_usage(usage: Any, prompt: str, text: str) -> None:
         nonlocal prompt_total, completion_total, cost_total, any_estimated
@@ -245,14 +278,17 @@ def generate_answer(
                 request["extra_body"] = {"stream_options": {"include_usage": True}}
 
             response = client.chat.completions.create(**request)
-            answer, usage = _extract_response(response, stream=stream, prompt_text=prompt_text)
+            answer, usage = _extract_response(response, stream=stream, prompt_text=prompt_text, facts=facts, on_section=on_section)
             add_usage(usage, prompt_text, answer)
             validation_issues = validate_answer(answer, facts) if answer else ["The visible answer was empty."]
             stage = "first_try"
 
             if validation_issues:
-                fallback_failures.append(f"Groq key_slot={key.slot} stage=first_try violations={validation_issues!r}")
-                LOGGER.warning("Groq answer rejected key_slot=%s model=%s raw_answer=%r violations=%s", key.slot, selected_model, answer, validation_issues)
+                if on_reset:
+                    on_reset()
+                violation_codes = safe_violation_codes(validation_issues)
+                fallback_failures.append(f"Groq key_slot={key.slot} stage=first_try violations={violation_codes}")
+                LOGGER.warning("Groq answer rejected key_slot=%s model=%s answer_chars=%d violation_count=%d violation_codes=%s", key.slot, selected_model, len(answer), len(validation_issues), violation_codes)
                 retry_messages = messages + [
                     {"role": "assistant", "content": answer},
                     {"role": "user", "content": (
@@ -263,13 +299,14 @@ def generate_answer(
                 retry_prompt = "\n".join(message["content"] for message in retry_messages)
                 retry_request = dict(request, messages=retry_messages)
                 retry_response = client.chat.completions.create(**retry_request)
-                answer, retry_usage = _extract_response(retry_response, stream=stream, prompt_text=retry_prompt)
+                answer, retry_usage = _extract_response(retry_response, stream=stream, prompt_text=retry_prompt, facts=facts, on_section=on_section)
                 add_usage(retry_usage, retry_prompt, answer)
                 validation_issues = validate_answer(answer, facts) if answer else ["The regenerated visible answer was empty."]
                 stage = "regenerated"
                 if validation_issues:
-                    fallback_failures.append(f"Groq key_slot={key.slot} stage=regenerated violations={validation_issues!r}")
-                    LOGGER.warning("Groq regenerated answer rejected key_slot=%s model=%s raw_answer=%r violations=%s", key.slot, selected_model, answer, validation_issues)
+                    violation_codes = safe_violation_codes(validation_issues)
+                    fallback_failures.append(f"Groq key_slot={key.slot} stage=regenerated violations={violation_codes}")
+                    LOGGER.warning("Groq regenerated answer rejected key_slot=%s model=%s answer_chars=%d violation_count=%d violation_codes=%s", key.slot, selected_model, len(answer), len(validation_issues), violation_codes)
                     break
 
             elapsed_ms = round((time.monotonic() - started) * 1000)
@@ -277,6 +314,8 @@ def generate_answer(
             return LLMAnswer(answer, "groq", selected_model, key.slot, prompt_total, completion_total,
                              prompt_total + completion_total, cost_total, any_estimated, True, stage)
         except Exception as error:
+            if on_reset:
+                on_reset()
             # Never log exception text or headers: SDK error strings can contain sensitive request data.
             failed_prompt = 0
             failed_completion = 0
@@ -296,6 +335,16 @@ def generate_answer(
                 key.slot, selected_model, _safe_status(error), failed_prompt, failed_completion, failed_cost, estimated,
             )
             fallback_failures.append(f"Groq key_slot={key.slot} provider_failure={_safe_status(error)}")
+            category = classify_provider_error(error)
+            if category == "invalid_request":
+                LOGGER.error("Groq request rejected as invalid; stopping key rotation model=%s", selected_model)
+                break
+            if category in {"transient", "rate_limited"} and key is not keys[-1]:
+                delay = retry_delay(_positive_float_env("LLM_RETRY_BASE_DELAY_SECONDS", 0.25), transient_failures)
+                transient_failures += 1
+                if delay:
+                    LOGGER.info("Groq transient failure; rotating key after backoff category=%s delay_seconds=%.2f", category, delay)
+                    time.sleep(delay)
             continue
         finally:
             close = getattr(client, "close", None)
@@ -305,41 +354,25 @@ def generate_answer(
                 except Exception:
                     LOGGER.debug("Groq client cleanup failed key_slot=%s", key.slot)
 
-    LOGGER.error("Groq fallback exhausted attempted_keys=%d prompt_tokens=%d completion_tokens=%d estimated_cost_usd=%s failures=%s", len(keys), prompt_total, completion_total, cost_total, fallback_failures)
-    selected_gemini_key = (gemini_api_key if gemini_api_key is not None else os.getenv("GEMINI_API_KEY", "")).strip()
-    selected_gemini_model = (gemini_model or os.getenv("GEMINI_MODEL") or "gemini-3.5-flash-lite").strip()
-    if selected_gemini_key:
-        from .gemini import generate_gemini_answer
-
-        gemini = generate_gemini_answer(
-            question,
-            facts,
-            api_key=selected_gemini_key,
-            model=selected_gemini_model,
-            client_factory=gemini_client_factory,
-            stream=stream,
-        )
-        if gemini.succeeded:
-            return gemini
-        fallback = safe_fact_answer(facts, question)
-        LOGGER.warning("Returning grounded fallback groq_failures=%s gemini_failure=see_provider_log raw_answer=%r", fallback_failures, fallback)
-        return LLMAnswer(fallback, "fallback", "grounded-fallback", None, prompt_total + gemini.prompt_tokens,
-                         completion_total + gemini.completion_tokens,
-                         prompt_total + completion_total + gemini.total_tokens,
-                         (cost_total + gemini.estimated_cost_usd) if cost_total is not None and gemini.estimated_cost_usd is not None else None,
-                         any_estimated or gemini.usage_is_estimated, True, "fallback")
-    fallback = safe_fact_answer(facts, question)
-    LOGGER.warning("Returning grounded fallback groq_failures=%s gemini_failure=no_api_key_configured raw_answer=%r", fallback_failures, fallback)
+    LOGGER.error("Groq provider exhausted attempted_keys=%d prompt_tokens=%d completion_tokens=%d estimated_cost_usd=%s failures=%s", len(keys), prompt_total, completion_total, cost_total, fallback_failures)
     return LLMAnswer(
-        answer=fallback,
-        provider="fallback",
-        model="grounded-fallback",
+        answer=FALLBACK_MESSAGE,
+        provider="groq",
+        model=selected_model,
         api_key_slot=None,
         prompt_tokens=prompt_total,
         completion_tokens=completion_total,
         total_tokens=prompt_total + completion_total,
         estimated_cost_usd=cost_total,
         usage_is_estimated=any_estimated,
-        succeeded=True,
-        validation_stage="fallback",
+        succeeded=False,
+        validation_stage="provider_failed",
+        failure_reason="; ".join(fallback_failures) or "no_groq_keys_configured",
     )
+
+
+def generate_answer(*args: Any, **kwargs: Any) -> LLMAnswer:
+    """Compatibility entry point; all answer provider priority lives in orchestrator."""
+    from .orchestrator import generate_answer as orchestrate
+
+    return orchestrate(*args, **kwargs)

@@ -5,6 +5,8 @@ from api.app.llm.groq import APIKey, FALLBACK_MESSAGE, generate_answer
 from api.app.llm.groq import _messages
 from api.app.llm.validation import safe_fact_answer, validate_answer
 from api.app.llm.routing import route_question
+from api.app.llm.groq import _extract_response
+from api.app.llm.groq import _extract_response
 
 
 class FakeHTTPError(Exception):
@@ -74,7 +76,7 @@ def test_timeout_and_http_errors_rotate_keys_then_log_only_key_slot(caplog):
     with caplog.at_level(logging.INFO, logger="melooha.llm.groq"):
         answer = generate_answer(
             "What do the facts say?", ["F001 : Lagna is Scorpio"],
-            api_keys=keys, client_factory=fake_factory(script, calls), stream=False,
+            api_keys=keys, client_factory=fake_factory(script, calls), stream=False, gemini_api_key="",
         )
 
     assert answer.succeeded is True
@@ -88,7 +90,7 @@ def test_timeout_and_http_errors_rotate_keys_then_log_only_key_slot(caplog):
     assert "never expose this secret detail" not in caplog.text
 
 
-def test_empty_answer_retries_then_uses_gemini():
+def test_gemini_primary_success_does_not_call_groq():
     keys = make_keys()[:1]
     calls = {}
     script = {"secret-1": _scripted(complete(text="  ", token_usage=usage(100, 0)), complete(text="  ", token_usage=usage(100, 0)))}
@@ -101,7 +103,7 @@ def test_empty_answer_retries_then_uses_gemini():
     )
     assert answer.succeeded is True
     assert answer.provider == "gemini"
-    assert len(calls["secret-1"]) == 2
+    assert calls == {}
     assert len(gemini.models.calls) == 1
 
 
@@ -119,7 +121,7 @@ def test_mid_stream_failure_discards_partial_text_and_retries_whole_answer():
     }
     answer = generate_answer(
         "Question", ["F002 : Sun in house 1 (Scorpio)"],
-        api_keys=keys, client_factory=fake_factory(script, calls), stream=True,
+        api_keys=keys, client_factory=fake_factory(script, calls), stream=True, gemini_api_key="",
     )
     assert answer.succeeded is True
     assert answer.answer == "Sun in house 1 (Scorpio) may indicate a tendency toward expression [F002][M013]."
@@ -131,9 +133,51 @@ def test_mid_stream_failure_discards_partial_text_and_retries_whole_answer():
     assert calls["secret-2"][0]["extra_body"] == {"stream_options": {"include_usage": True}}
 
 
-def test_all_failures_return_friendly_message_without_raw_provider_errors(caplog):
+def test_completed_section_is_emitted_before_provider_stream_finishes():
+    emitted = []
+
+    def response():
+        yield chunk("[[SECTION: Placement]]Jupiter sits in the tenth house.[[/SECTION]]")
+        assert emitted == [("Placement", "Jupiter sits in the tenth house.")]
+        yield chunk("[[SECTION: Meaning]]This can be a useful focus.[[/SECTION]]")
+
+    answer, _ = _extract_response(
+        response(), stream=True, prompt_text="", facts=["F001 : Jupiter in house 10"],
+        on_section=lambda title, text: emitted.append((title, text)),
+    )
+    assert [title for title, _ in emitted] == ["Placement", "Meaning"]
+    assert answer == "### Placement\n\nJupiter sits in the tenth house.\n\n### Meaning\n\nThis can be a useful focus."
+
+
+def test_fallback_resets_emitted_sections_and_never_concatenates_provider_attempts():
+    keys = make_keys()[:2]
+
+    def broken_after_section():
+        yield chunk("[[SECTION: Gemini partial]]An incomplete first attempt.[[/SECTION]]")
+        raise TimeoutError("stream interrupted")
+
+    script = {
+        "secret-1": broken_after_section(),
+        "secret-2": [chunk("[[SECTION: Groq final]]A complete replacement answer.[[/SECTION]]")],
+    }
+    emitted = []
+    answer = generate_answer(
+        "Question", ["F001 : Lagna is Scorpio"], api_keys=keys,
+        client_factory=fake_factory(script, {}), stream=True, gemini_api_key="",
+        on_section=lambda title, text: emitted.append((title, text)),
+        on_reset=lambda: emitted.clear(),
+    )
+    assert answer.succeeded
+    assert answer.answer == "### Groq final\n\nA complete replacement answer."
+    assert emitted == [("Groq final", "A complete replacement answer.")]
+
+
+def test_all_failures_return_friendly_message_with_exponential_rotation_backoff(caplog, monkeypatch):
     keys = make_keys()
     calls = {}
+    delays = []
+    monkeypatch.setenv("LLM_RETRY_BASE_DELAY_SECONDS", "0.1")
+    monkeypatch.setattr("api.app.llm.groq.time.sleep", delays.append)
     script = {f"secret-{i}": FakeHTTPError(500) for i in range(1, 5)}
     with caplog.at_level(logging.WARNING, logger="melooha.llm.groq"):
         answer = generate_answer(
@@ -141,21 +185,36 @@ def test_all_failures_return_friendly_message_without_raw_provider_errors(caplog
             api_keys=keys, client_factory=fake_factory(script, calls), stream=False, gemini_api_key="",
         )
 
-    assert answer.succeeded is True
-    assert answer.provider == "fallback"
-    assert "could not" not in answer.answer.lower()
+    assert answer.succeeded is False
+    assert answer.provider == "none"
+    assert "temporarily unavailable" in answer.answer.lower()
     assert "500" in caplog.text
-    assert "Returning grounded fallback" in caplog.text
+    assert "All answer providers failed" in caplog.text
     assert "provider_failure" in caplog.text
     assert all(secret not in caplog.text for secret in script)
+    assert delays == [0.1, 0.2, 0.4]
+
+
+def test_groq_malformed_request_stops_key_rotation_without_retries(caplog, monkeypatch):
+    keys = make_keys()
+    calls = {}
+    script = {f"secret-{i}": FakeHTTPError(400) for i in range(1, 5)}
+    monkeypatch.setenv("LLM_RETRY_BASE_DELAY_SECONDS", "0")
+    answer = generate_answer(
+        "Question", ["F003 : Mercury in house 2 (Sagittarius)"],
+        api_keys=keys, client_factory=fake_factory(script, calls), stream=False, gemini_api_key="",
+    )
+    assert not answer.succeeded
+    assert list(calls) == ["secret-1"]
+    assert "stopping key rotation" in caplog.text
 
 
 def test_no_configured_keys_returns_friendly_message_and_logs_fallback_reason(caplog):
     answer = generate_answer("Question", ["F001 : Lagna is Scorpio"], api_keys=[], gemini_api_key="")
-    assert answer.succeeded is True
-    assert answer.provider == "fallback"
+    assert answer.succeeded is False
+    assert answer.provider == "none"
     assert "Groq: no API keys configured" in caplog.text
-    assert "gemini_failure=no_api_key_configured" in caplog.text
+    assert "gemini_failure=missing_api_key" in caplog.text
 
 
 def _scripted(*responses):
@@ -212,7 +271,7 @@ def test_checker_rejects_wrong_sign_date_unknown_citation_and_certainty():
     assert any("Avoid guarantees" in error for error in errors)
 
 
-def test_two_invalid_model_answers_return_relevant_safe_answer_and_log_violations(caplog):
+def test_two_invalid_groq_answers_fail_safely_and_log_sanitized_violation_causes(caplog):
     facts = [
         "F001 : Lagna is Scorpio",
         "F007 : Saturn in house 6 (Pisces), retrograde, nakshatra Revati",
@@ -227,17 +286,13 @@ def test_two_invalid_model_answers_return_relevant_safe_answer_and_log_violation
             api_keys=make_keys()[:1], client_factory=fake_factory(script, calls), stream=False, gemini_api_key="",
         )
 
-    assert answer.succeeded is True
-    routed_facts = route_question("What does Saturn suggest?", facts)
-    assert answer.answer == safe_fact_answer(routed_facts, "What does Saturn suggest?")
-    assert "house 8" not in answer.answer
-    assert "house 2" not in answer.answer
-    assert "[F007]" in answer.answer
-    assert validate_answer(answer.answer, routed_facts) == []
+    assert answer.succeeded is False
+    assert answer.answer == FALLBACK_MESSAGE
     assert "violations=" in caplog.text
-    assert "Saturn in house 8 contradicts" in caplog.text
-    assert f"raw_answer={wrong_two!r}" in caplog.text
-    assert "Returning grounded fallback" in caplog.text
+    assert "unsupported_house_claim" in caplog.text
+    assert wrong_one not in caplog.text
+    assert wrong_two not in caplog.text
+    assert "All answer providers failed" in caplog.text
     assert "stage=first_try violations=" in caplog.text
     assert "stage=regenerated violations=" in caplog.text
 
@@ -263,14 +318,12 @@ def test_groq_request_uses_low_reasoning_and_larger_visible_output_budget():
     assert request["max_completion_tokens"] >= 4096
 
 
-def test_rejected_groq_answer_after_regeneration_hands_off_to_gemini(caplog):
+def test_gemini_succeeds_before_groq_attempts(caplog):
     from api.app.llm.test_gemini import FakeGeminiClient, stream
 
     facts = ["F001 : Lagna is Scorpio", "F005 : Jupiter in house 10 (Leo), direct, nakshatra Magha"]
-    invalid_one = "Jupiter may be in house 8 [F005]."
-    invalid_two = "Jupiter may be in Aries [F005]."
     groq_calls = {}
-    groq_script = {"secret-1": _scripted(complete(invalid_one), complete(invalid_two))}
+    groq_script = {"secret-1": _scripted(complete("unused"))}
     gemini = FakeGeminiClient([stream("Jupiter may support learning and perspective [F005][M017].")])
     with caplog.at_level(logging.WARNING):
         answer = generate_answer("What does Jupiter suggest?", facts, api_keys=make_keys()[:1],
@@ -278,7 +331,5 @@ def test_rejected_groq_answer_after_regeneration_hands_off_to_gemini(caplog):
                                  gemini_api_key="fake-gemini", gemini_client_factory=lambda _: gemini)
     assert answer.provider == "gemini"
     assert answer.succeeded
-    assert len(groq_calls["secret-1"]) == 2
+    assert groq_calls == {}
     assert len(gemini.models.calls) == 1
-    assert f"raw_answer={invalid_one!r}" in caplog.text
-    assert f"raw_answer={invalid_two!r}" in caplog.text

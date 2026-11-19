@@ -35,6 +35,16 @@ class PlanetPosition(BaseModel):
     house: int = Field(ge=1, le=12)
     retrograde: bool
     nakshatra: str
+    nakshatra_pada: int = Field(ge=1, le=4)
+    d9_sign: str
+    d9_house: int = Field(ge=1, le=12)
+    d10_sign: str
+    d10_house: int = Field(ge=1, le=12)
+    nakshatra_pada: int = Field(ge=1, le=4)
+    d9_sign: str
+    d9_house: int = Field(ge=1, le=12)
+    d10_sign: str
+    d10_house: int = Field(ge=1, le=12)
 
 
 class DashaPeriod(BaseModel):
@@ -51,6 +61,28 @@ class TransitPosition(BaseModel):
     nakshatra: str
 
 
+class DivisionalPlanet(BaseModel):
+    name: str
+    sign: str
+    house: int = Field(ge=1, le=12)
+
+
+class DivisionalChart(BaseModel):
+    ascendant_sign: str
+    planets: list[DivisionalPlanet] = Field(min_length=9, max_length=9)
+
+
+class DivisionalPlanet(BaseModel):
+    name: str
+    sign: str
+    house: int = Field(ge=1, le=12)
+
+
+class DivisionalChart(BaseModel):
+    ascendant_sign: str
+    planets: list[DivisionalPlanet] = Field(min_length=9, max_length=9)
+
+
 class ChartResponse(BaseModel):
     birth_date: date
     birth_time: time
@@ -64,4 +96,8 @@ class ChartResponse(BaseModel):
     current_antardasha: DashaPeriod
     current_pratyantardasha: DashaPeriod
     transits: list[TransitPosition] = Field(min_length=2, max_length=2)
+    d9: DivisionalChart
+    d10: DivisionalChart
+    d9: DivisionalChart
+    d10: DivisionalChart
     facts: list[str]

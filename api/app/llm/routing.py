@@ -19,6 +19,7 @@ SIGN_LORDS = {
     "Leo": "Sun", "Virgo": "Mercury", "Libra": "Venus", "Scorpio": "Mars",
     "Sagittarius": "Jupiter", "Capricorn": "Saturn", "Aquarius": "Saturn", "Pisces": "Jupiter",
 }
+HOUSE_ORDINALS = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth", "eleventh", "twelfth")
 POSITION_RE = re.compile(
     r"^\s*(?:F\d{3})\s*:\s*(Sun|Moon|Mars|Mercury|Jupiter|Venus|Saturn|Rahu|Ketu)"
     r" in house (\d{1,2}) \((Aries|Taurus|Gemini|Cancer|Leo|Virgo|Libra|Scorpio|"
@@ -91,6 +92,11 @@ def route_question(question: str, chart_facts: Sequence[str]) -> list[str]:
     topic = detect_topic(question)
     timing = topic == "career" or bool(TIMING_RE.search(question))
     target_houses = set(target_houses_for_question(question))
+    explicit_house = re.search(r"\b(?:house\s*(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)\s+house|(" + "|".join(HOUSE_ORDINALS) + r")\s+house)\b", question, re.I)
+    if explicit_house:
+        number = int(explicit_house.group(1) or explicit_house.group(2) or (HOUSE_ORDINALS.index(explicit_house.group(3).casefold()) + 1))
+        if 1 <= number <= 12:
+            target_houses.add(number)
 
     lagna = next((match.group(1).title() for fact in chart_facts if (match := LAGNA_RE.match(fact))), None)
     positions: dict[str, tuple[int, str, str]] = {}
@@ -121,11 +127,13 @@ def route_question(question: str, chart_facts: Sequence[str]) -> list[str]:
         lagna_index = SIGNS.index(lagna)
         for house in sorted(target_houses):
             sign = SIGNS[(lagna_index + house - 1) % 12]
-            derived = [
+            stored = [fact for fact in chart_facts if re.search(rf"\bD1 house {house} sign is {sign}; ruler is {SIGN_LORDS[sign]}\b", fact, re.I)]
+            derived = stored or [
                 f"F{next_id:03d} : Sign on house {house} is {sign}",
                 f"F{next_id + 1:03d} : Ruler of house {house} is {SIGN_LORDS[sign]}",
             ]
-            next_id += 2
+            if not stored:
+                next_id += 2
             derived_by_house[house] = derived
             for fact in derived:
                 add(fact)
@@ -155,10 +163,10 @@ def route_question(question: str, chart_facts: Sequence[str]) -> list[str]:
     )
 
     relevant_lords = {
-        fact.rsplit(" ", 1)[-1]
+        (fact.rsplit(" ", 1)[-1] if "Ruler of house" in fact else re.search(r"ruler is\s+(\w+)", fact, re.I).group(1))
         for house in target_houses
         for fact in derived_by_house.get(house, [])
-        if "Ruler of house" in fact
+        if "Ruler of house" in fact or re.search(r"ruler is\s+\w+", fact, re.I)
     }
     relevant_planets.update(relevant_lords)
     for name, (house, _sign, fact) in positions.items():
@@ -182,6 +190,24 @@ def route_question(question: str, chart_facts: Sequence[str]) -> list[str]:
         for sign in SIGNS:
             if re.search(rf"\b{sign}\b", fact, re.I):
                 sign_keys.add(sign)
+
+    lowered_question = question.casefold()
+    if re.search(r"\b(?:d9|navamsa|navamsha)\b", lowered_question):
+        for fact in chart_facts:
+            if re.match(r"\s*F\d{3}\s*:\s*D9\b", fact, re.I):
+                add(fact)
+    if re.search(r"\b(?:d10|dasamsa|dashamsha|dashamsa)\b", lowered_question):
+        for fact in chart_facts:
+            if re.match(r"\s*F\d{3}\s*:\s*D10\b", fact, re.I):
+                add(fact)
+    if re.search(r"\b(?:lord|ruler|rules|governs)\b", lowered_question):
+        for fact in chart_facts:
+            if re.search(r"\bD1 house \d+ sign is .*; ruler is", fact, re.I):
+                add(fact)
+    if "yoga" in lowered_question:
+        for fact in chart_facts:
+            if "yoga" in fact.casefold():
+                add(fact)
 
     requested_concepts = {"lagna", "house ruler"}
     if transits and any(fact in selected for fact in transits):

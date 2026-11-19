@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from geopy.geocoders import Nominatim
 from kerykeion import AstrologicalSubjectFactory
 
-from .models import ChartRequest, ChartResponse, DashaPeriod, PlanetPosition, TransitPosition
+from .models import ChartRequest, ChartResponse, DashaPeriod, DivisionalChart, DivisionalPlanet, PlanetPosition, TransitPosition
 
 SIGNS = (
     "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
@@ -31,6 +31,24 @@ DASHA_YEARS = {
 DASHA_TOTAL_YEARS = sum(DASHA_YEARS.values())
 DAYS_PER_DASHA_YEAR = 365.25
 NAKSHATRA_SPAN = 360 / 27
+PADA_SPAN = NAKSHATRA_SPAN / 4
+
+
+def _varga_sign(longitude: float, division: int) -> str:
+    normalized = longitude % 360
+    rasi = int(normalized // 30)
+    part = min(division - 1, int((normalized % 30) / (30 / division)))
+    if division == 9:
+        offset = {0: 0, 1: 8, 2: 4}[rasi % 3]
+        return SIGNS[(rasi + offset + part) % 12]
+    if division == 10:
+        start = rasi if rasi % 2 == 0 else (rasi + 8) % 12
+        return SIGNS[(start + part) % 12]
+    raise ValueError("Only D9 and D10 are supported")
+
+
+def _nakshatra_pada(longitude: float) -> int:
+    return min(4, int((longitude % NAKSHATRA_SPAN) / PADA_SPAN) + 1)
 
 
 @lru_cache(maxsize=256)
@@ -127,17 +145,34 @@ def calculate_chart(request: ChartRequest, as_of: datetime | None = None) -> Cha
 
     natal = _build_subject("Melooha Chart", local_birth, request.location, latitude, longitude)
     lagna = _sign_name(natal.ascendant.sign)
+    d9_lagna = _varga_sign(natal.ascendant.abs_pos, 9)
+    d10_lagna = _varga_sign(natal.ascendant.abs_pos, 10)
     planets: list[PlanetPosition] = []
     for name, attribute in PLANETS:
         point = getattr(natal, attribute)
         sign = _sign_name(point.sign)
+        d9_sign = _varga_sign(point.abs_pos, 9)
+        d10_sign = _varga_sign(point.abs_pos, 10)
         planets.append(PlanetPosition(
             name=name,
             sign=sign,
             house=_house(sign, lagna),
             retrograde=bool(point.retrograde),
             nakshatra=point.nakshatra or "",
+            nakshatra_pada=_nakshatra_pada(point.abs_pos),
+            d9_sign=d9_sign,
+            d9_house=_house(d9_sign, d9_lagna),
+            d10_sign=d10_sign,
+            d10_house=_house(d10_sign, d10_lagna),
         ))
+    d9 = DivisionalChart(
+        ascendant_sign=d9_lagna,
+        planets=[DivisionalPlanet(name=p.name, sign=p.d9_sign, house=p.d9_house) for p in planets],
+    )
+    d10 = DivisionalChart(
+        ascendant_sign=d10_lagna,
+        planets=[DivisionalPlanet(name=p.name, sign=p.d10_sign, house=p.d10_house) for p in planets],
+    )
 
     mahadasha, antardasha, pratyantardasha = _current_nested_periods(
         natal.moon.abs_pos, local_birth, now_local
@@ -175,13 +210,32 @@ def calculate_chart(request: ChartRequest, as_of: datetime | None = None) -> Cha
     add_fact(f"Lagna is {lagna}")
     for planet in planets:
         retrograde = "retrograde" if planet.retrograde else "direct"
-        add_fact(f"{planet.name} in house {planet.house} ({planet.sign}), {retrograde}, nakshatra {planet.nakshatra}")
+        add_fact(f"{planet.name} in house {planet.house} ({planet.sign}), {retrograde}, nakshatra {planet.nakshatra}, pada {planet.nakshatra_pada}")
     add_fact(f"Current mahadasha is {mahadasha.lord} from {mahadasha.start_date} to {mahadasha.end_date}")
     add_fact(f"Current antardasha is {antardasha.lord} from {antardasha.start_date} to {antardasha.end_date}")
     add_fact(f"Current pratyantardasha is {pratyantardasha.lord} from {pratyantardasha.start_date} to {pratyantardasha.end_date}")
     for transit in transits:
         retrograde = "retrograde" if transit.retrograde else "direct"
         add_fact(f"Transiting {transit.planet} in house {transit.house} ({transit.sign}), {retrograde}, nakshatra {transit.nakshatra}")
+
+    for house in range(1, 13):
+        house_sign = SIGNS[(SIGNS.index(lagna) + house - 1) % 12]
+        house_lord = {
+            "Aries": "Mars", "Taurus": "Venus", "Gemini": "Mercury", "Cancer": "Moon",
+            "Leo": "Sun", "Virgo": "Mercury", "Libra": "Venus", "Scorpio": "Mars",
+            "Sagittarius": "Jupiter", "Capricorn": "Saturn", "Aquarius": "Saturn", "Pisces": "Jupiter",
+        }[house_sign]
+        add_fact(f"D1 house {house} sign is {house_sign}; ruler is {house_lord}")
+    add_fact(f"D9 ascendant is {d9.ascendant_sign}")
+    for planet in d9.planets:
+        add_fact(f"D9 {planet.name} in house {planet.house} ({planet.sign})")
+    add_fact(f"D10 ascendant is {d10.ascendant_sign}")
+    for planet in d10.planets:
+        add_fact(f"D10 {planet.name} in house {planet.house} ({planet.sign})")
+    by_planet = {p.name: p for p in planets}
+    budha_aditya_present = by_planet["Sun"].sign == by_planet["Mercury"].sign
+    yoga_status = "present" if budha_aditya_present else "not present"
+    add_fact(f"Budha-Aditya Yoga same-sign condition is {yoga_status} (Sun {by_planet['Sun'].sign}; Mercury {by_planet['Mercury'].sign})")
 
     return ChartResponse(
         birth_date=request.birth_date,
@@ -194,5 +248,7 @@ def calculate_chart(request: ChartRequest, as_of: datetime | None = None) -> Cha
         current_antardasha=antardasha,
         current_pratyantardasha=pratyantardasha,
         transits=transits,
+        d9=d9,
+        d10=d10,
         facts=facts,
     )

@@ -163,8 +163,19 @@ test('chart facts sheet only closes for downward drags from its handle or header
 
 test('reading answers do not render citation markers as superscripts', async () => {
   const ui = await readFile(new URL('../app/ui.tsx', import.meta.url), 'utf8');
-  assert.match(ui, /if \(citation\) return null;/);
+  assert.match(ui, /if \(citation\) return \[\];/);
   assert.doesNotMatch(ui, /<sup\b/);
+  assert.match(ui, /line\.match\(\//);
+  assert.match(ui, /piece\.startsWith\('\*\*'\)/);
+});
+
+test('chat renders separately keyed completed answer sections and section-level speech controls', async () => {
+  const chat = await readFile(new URL('../app/chat.tsx', import.meta.url), 'utf8');
+  assert.match(chat, /message_start/);
+  assert.match(chat, /message_delta/);
+  assert.match(chat, /message_complete/);
+  assert.match(chat, /a-\$\{payload\.id\}/);
+  assert.match(chat, /<ListenButton text=\{message\.text\}/);
 });
 
 test('workspace routes and zero-balance home state are reachable and safe', async () => {

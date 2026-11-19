@@ -238,6 +238,33 @@ def validate_answer(answer: str, facts: Sequence[str]) -> list[str]:
     return hard
 
 
+def safe_violation_codes(issues: Sequence[str]) -> list[str]:
+    """Reduce validation details to non-personal categories for operational logs."""
+    codes: list[str] = []
+    for issue in issues:
+        lowered = issue.casefold()
+        if "citation" in lowered:
+            code = "unknown_citation_id"
+        elif "tooltip term" in lowered:
+            code = "unknown_interpretation_id"
+        elif "planet" in lowered and ("not present" in lowered or "house" in lowered or "sign" in lowered):
+            code = "unsupported_planet_claim"
+        elif "sign" in lowered or "lagna" in lowered or "ascendant" in lowered:
+            code = "unsupported_sign_or_lagna_claim"
+        elif "house" in lowered:
+            code = "unsupported_house_claim"
+        elif "date" in lowered or "year" in lowered:
+            code = "unsupported_date_claim"
+        elif "guarantee" in lowered or "certainty" in lowered or "predictions" in lowered:
+            code = "certainty_language"
+        elif "fact" in lowered:
+            code = "invalid_supplied_facts"
+        else:
+            code = "other_validation_failure"
+        codes.append(code)
+    return list(dict.fromkeys(codes))
+
+
 def safe_fact_answer(facts: Sequence[str], question: str = "") -> str:
     """Compose a short, relevant answer from routed F and M facts."""
     parsed, _ = _parse_facts(facts)

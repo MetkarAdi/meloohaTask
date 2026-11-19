@@ -344,6 +344,7 @@ def ask_with_sse(
                 raise HTTPException(status_code=404, detail="That failed answer is no longer available to retry.")
             question.status = "pending"
             question.answer_text = None
+            question.answer_sections = None
             question.facts_used = []
             question_id = question.id
             question_text = question.question_text
@@ -371,6 +372,7 @@ def ask_with_sse(
             if body.question_text:
                 question.question_text = body.question_text
             question.answer_text = None
+            question.answer_sections = None
             question.status = "pending"
         else:
             question = Question(
@@ -425,111 +427,143 @@ def ask_with_sse(
         )
 
     def stream_events():
-        answer_record: Question | None = None
-        chart_facts: list[str] = []
-        all_chart_facts: list[str] = []
-        generated = None
-        failure_message = ASK_FAILURE_MESSAGE
-        yield _sse("started", {"question_id": question_id, "wallet_balance": balance})
-        try:
-            factory = get_session_factory()
-            with factory() as db:
-                profile = db.scalar(select(BirthProfile).where(
-                    BirthProfile.id == profile_id,
-                    BirthProfile.user_id == user.id,
-                ))
-                if profile is None:
-                    raise ValueError("Birth profile is unavailable")
-                request = ChartRequest(
-                    birth_date=profile.birth_date,
-                    birth_time=profile.birth_time,
-                    timezone=profile.timezone,
-                    location=profile.location,
-                    latitude=profile.latitude,
-                    longitude=profile.longitude,
-                )
+        from queue import Queue
+        from threading import Thread
 
-            chart = calculate_chart(request)
-            all_chart_facts = list(chart.facts)
-            if profile.birth_time_unknown:
-                all_chart_facts.append(
-                    f"F{len(all_chart_facts) + 1:03d} : Birth time was marked unknown; time-dependent placements are approximate"
-                )
-            chart_facts = route_question(question_text, all_chart_facts)
-            # User identity and profile metadata are intentionally not passed to any LLM.
-            generated = generate_answer(question_text, chart_facts, stream=True)
-            if not generated.succeeded:
-                raise RuntimeError("All configured answer providers failed")
-        except Exception as exc:
-            LOGGER.warning("Question generation failed question_id=%s error=%s", question_id, type(exc).__name__)
+        events = Queue()
+        sentinel = object()
+        events.put(_sse("response_start", {"question_id": question_id, "wallet_balance": balance}))
+
+        def produce():
+            chart_facts: list[str] = []
+            all_chart_facts: list[str] = []
+            emitted_sections: list[dict[str, str]] = []
             generated = None
+            chart = None
+            failure_message = ASK_FAILURE_MESSAGE
 
-        with get_session_factory()() as db:
-            with db.begin():
-                answer_record = db.scalar(select(Question).where(
-                    Question.id == question_id,
-                    Question.user_id == user.id,
-                ))
-                if answer_record is None:
-                    return
-                answer_record.facts_used = chart_facts
-                if generated is None:
-                    answer_record.status = "failed"
-                    answer_record.answer_text = failure_message
-                    if retry_without_charge:
-                        wallet = db.get(Wallet, user.id)
-                        balance_after = wallet.balance if wallet is not None else 0
+            def reset_attempt() -> None:
+                emitted_sections.clear()
+                events.put(_sse("response_error", {"question_id": question_id, "restart": True, "message": "Switching answer source"}))
+
+            def emit_section(title: str, text: str) -> None:
+                section_id = f"{question_id}-{len(emitted_sections) + 1}"
+                section = {"id": section_id, "title": title, "text": text}
+                emitted_sections.append(section)
+                events.put(_sse("message_start", {"question_id": question_id, **section}))
+                # Small deltas preserve progressive rendering without exposing unchecked tokens.
+                for offset in range(0, len(text), 48):
+                    events.put(_sse("message_delta", {"question_id": question_id, "id": section_id, "text": text[offset:offset + 48]}))
+                events.put(_sse("message_complete", {"question_id": question_id, "id": section_id}))
+
+            try:
+                factory = get_session_factory()
+                with factory() as db:
+                    profile = db.scalar(select(BirthProfile).where(
+                        BirthProfile.id == profile_id,
+                        BirthProfile.user_id == user.id,
+                    ))
+                    if profile is None:
+                        raise ValueError("Birth profile is unavailable")
+                    request = ChartRequest(
+                        birth_date=profile.birth_date,
+                        birth_time=profile.birth_time,
+                        timezone=profile.timezone,
+                        location=profile.location,
+                        latitude=profile.latitude,
+                        longitude=profile.longitude,
+                    )
+                    birth_time_unknown = profile.birth_time_unknown
+
+                chart = calculate_chart(request)
+                all_chart_facts = list(chart.facts)
+                if birth_time_unknown:
+                    all_chart_facts.append(
+                        f"F{len(all_chart_facts) + 1:03d} : Birth time was marked unknown; time-dependent placements are approximate"
+                    )
+                chart_facts = route_question(question_text, all_chart_facts)
+                # User identity and profile metadata are intentionally not passed to any LLM.
+                generated = generate_answer(
+                    question_text, chart_facts, stream=True,
+                    on_section=emit_section, on_reset=reset_attempt,
+                )
+                if not generated.succeeded:
+                    raise RuntimeError("All configured answer providers failed")
+                if not emitted_sections and generated.answer.strip():
+                    emit_section("Reading", generated.answer.strip())
+            except Exception as exc:
+                LOGGER.exception("Question generation failed question_id=%s error_type=%s", question_id, type(exc).__name__)
+                generated = None
+
+            with get_session_factory()() as db:
+                with db.begin():
+                    answer_record = db.scalar(select(Question).where(
+                        Question.id == question_id,
+                        Question.user_id == user.id,
+                    ))
+                    if answer_record is None:
+                        events.put(_sse("response_error", {"question_id": question_id, "message": failure_message}))
+                        events.put(sentinel)
+                        return
+                    answer_record.facts_used = chart_facts
+                    if generated is None:
+                        answer_record.status = "failed"
+                        answer_record.answer_text = failure_message
+                        answer_record.answer_sections = None
+                        if retry_without_charge:
+                            wallet = db.get(Wallet, user.id)
+                            balance_after = wallet.balance if wallet is not None else 0
+                        else:
+                            refund_balance = adjust_wallet(
+                                db, user_id=user.id, amount=1, reason="refund",
+                                note=f"Refund for failed answer to question #{question_id}",
+                            )
+                            balance_after = refund_balance if refund_balance is not None else 0
                     else:
-                        refund_balance = adjust_wallet(
-                            db,
-                            user_id=user.id,
-                            amount=1,
-                            reason="refund",
-                            note=f"Refund for failed answer to question #{question_id}",
-                        )
-                        balance_after = refund_balance if refund_balance is not None else 0
-                else:
-                    answer_record.status = "answered"
-                    answer_record.answer_text = generated.answer
-                    answer_record.llm_provider = generated.provider
-                    answer_record.llm_model = generated.model
-                    answer_record.api_key_slot = generated.api_key_slot
-                    answer_record.prompt_tokens = generated.prompt_tokens
-                    answer_record.completion_tokens = generated.completion_tokens
-                    answer_record.total_tokens = generated.total_tokens
-                    answer_record.cost_usd = generated.estimated_cost_usd
-                    answer_record.birth_profile_id = profile_id
-                    answer_record_profile = db.get(BirthProfile, profile_id)
-                    if answer_record_profile is not None:
-                        answer_record_profile.chart_facts = all_chart_facts
-                        answer_record_profile.chart_data = chart.model_dump(mode="json")
-                        answer_record_profile.calculated_at = datetime.now(timezone.utc)
-                    balance_after = balance
+                        answer_record.status = "answered"
+                        answer_record.answer_text = generated.answer
+                        answer_record.answer_sections = emitted_sections
+                        answer_record.llm_provider = generated.provider
+                        answer_record.llm_model = generated.model
+                        answer_record.api_key_slot = generated.api_key_slot
+                        answer_record.prompt_tokens = generated.prompt_tokens
+                        answer_record.completion_tokens = generated.completion_tokens
+                        answer_record.total_tokens = generated.total_tokens
+                        answer_record.cost_usd = generated.estimated_cost_usd
+                        answer_record.birth_profile_id = profile_id
+                        answer_record_profile = db.get(BirthProfile, profile_id)
+                        if answer_record_profile is not None and chart is not None:
+                            answer_record_profile.chart_facts = all_chart_facts
+                            answer_record_profile.chart_data = chart.model_dump(mode="json")
+                            answer_record_profile.calculated_at = datetime.now(timezone.utc)
+                        balance_after = balance
 
-        yield _sse("meta", {
-            "question_id": question_id,
-            "facts_used": chart_facts,
-            "wallet_balance": balance_after,
-            "highlighted_houses": target_houses_for_question(question_text),
-        })
-        if generated is None:
-            yield _sse("failed", {
-                "question_id": question_id,
-                "message": failure_message,
-                "wallet_balance": balance_after,
-            })
-            return
-        answer_text = generated.answer
-        for start in range(0, len(answer_text), 72):
-            yield _sse("chunk", {"text": answer_text[start:start + 72]})
-        yield _sse("complete", {
-            "question_id": question_id,
-            "answer_text": answer_text,
-            "facts_used": chart_facts,
-            "wallet_balance": balance_after,
-            "status": "answered",
-            "highlighted_houses": target_houses_for_question(question_text),
-        })
+            if generated is None:
+                events.put(_sse("response_error", {
+                    "question_id": question_id, "message": failure_message,
+                    "wallet_balance": balance_after, "refunded": not retry_without_charge,
+                }))
+            else:
+                # Exactly one successful database write stores the complete response; no partial section is persisted.
+                events.put(_sse("response_complete", {
+                    "question_id": question_id,
+                    "answer_text": generated.answer,
+                    "sections": emitted_sections,
+                    "facts_used": chart_facts,
+                    "wallet_balance": balance_after,
+                    "status": "answered",
+                    "highlighted_houses": target_houses_for_question(question_text),
+                    "provider": generated.provider,
+                    "model": generated.model,
+                }))
+            events.put(sentinel)
+
+        Thread(target=produce, name=f"answer-{question_id}", daemon=True).start()
+        while True:
+            event = events.get()
+            if event is sentinel:
+                break
+            yield event
 
     return StreamingResponse(
         stream_events(),
