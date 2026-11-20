@@ -198,30 +198,3 @@ The runner also accepts provider and threshold options; see `api/evals/__main__.
 The code is structured for a Vercel Next.js frontend, a Render FastAPI service, and Neon Postgres. Vercel's build-time `NEXT_PUBLIC_API_URL` configures the `/api` rewrite; FastAPI expects Postgres URLs, and its lifespan runs migrations when a database URL is configured.
 
 <!-- TODO(aditya): Confirm Vercel project root/build settings, Render build/start/health settings, environment-variable values, and production cookie/domain behavior before publishing deployment instructions. -->
-
-## Project notes
-
-### New vs. reused
-
-<!-- TODO(aditya): Confirm which parts of this take-home are new and which were reused or adapted. -->
-
-### AI tools
-
-<!-- TODO(aditya): Add the AI tools used and briefly describe how they were used. -->
-
-### Known limitations
-
-- `/wallet/add` is a development/demo credit mechanism, not a payment integration; production mode rejects it.
-- The `safe_fact_answer()` helper is not wired into `/ask`; all-provider failure returns a localized unavailable message and refunds the credit.
-- Daily insight generation has a polling worker and an on-demand endpoint; automatic worker uptime depends on how the service is hosted.
-- Reply-language detection is conservative and limited; broad multilingual quality is not guaranteed.
-- Place lookup depends on external Open-Meteo geocoding, with Photon as a fallback.
-- Admin metrics depend on signup and session events having been recorded; demo-seeded events are synthetic.
-
-### Credits and licenses
-
-- Place suggestions query Open-Meteo first and Photon (Komoot) on fallback.
-- The installed `kerykeion` package metadata reports version 6.1.0 and AGPL-3.0. The installed `libephemeris` metadata reports version 4.0.0 and AGPL-3.0; `api/requirements.txt` declares Kerykeion, and the chart calculator uses it.
-- Kerykeion's installed metadata lists `pyswisseph` only as an optional `[swiss]` / `[all]` extra. `pyswisseph` is not installed in this environment, so this repository's current dependency metadata does not establish that Swiss Ephemeris is used.
-
-<!-- TODO(aditya): Review applicable dependency and service licenses/attributions for the intended distribution. -->
