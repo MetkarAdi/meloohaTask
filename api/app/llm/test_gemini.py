@@ -68,11 +68,11 @@ def test_gemini_primary_uses_only_question_and_chart_facts_and_skips_groq():
     assert answer.prompt_tokens == 100
     assert answer.completion_tokens == 20
     sent = gemini.models.calls[0]
-    assert sent["contents"].startswith("Question:\nWhat does Jupiter suggest?\n\nVerified chart facts:\n[")
+    assert sent["contents"].startswith("Question:\nWhat does Jupiter suggest?\n\nVerified chart facts (English only):\n[")
     assert "F005 : Jupiter in house 10 (Leo)" in sent["contents"]
     assert "M017 : In Vedic astrology, Jupiter is associated with learning" in sent["contents"]
-    assert "email" not in sent["contents"].lower()
-    assert "name" not in sent["contents"].lower()
+    assert "user@example.com" not in sent["contents"].lower()
+    assert "Aditya" not in sent["contents"]
     assert "GEMINI_API_KEY" not in sent["contents"]
     assert sent["config"].system_instruction
 

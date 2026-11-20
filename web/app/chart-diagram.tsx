@@ -67,7 +67,7 @@ export function ShareChartButton({ facts, firstName, includeBirthDetails = false
       const chart = createShareSvg(diagram, { firstName, facts, includeBirthDetails: includeDetails, birthDetails });
       const blob = await svgToPng(chart);
       const file = new File([blob], 'melooha-chart.png', { type: 'image/png' });
-      if (navigator.share && navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: 'My Meloohā chart' });
+      if (navigator.share && navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: 'My Melooha chart' });
       else { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'melooha-chart.png'; anchor.click(); URL.revokeObjectURL(url); }
       void fetch('/api/events', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'chart_image_shared' }) }).catch(() => {});
     } catch { setError('The chart image could not be created. Please try again.'); }

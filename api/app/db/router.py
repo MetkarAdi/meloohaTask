@@ -23,6 +23,7 @@ from app.chart.calculator import calculate_chart
 from app.chart.models import ChartRequest
 from app.llm import generate_answer
 from app.llm.routing import route_question, target_houses_for_question
+from app.llm.language import localized_unavailable
 from .models import AppEvent, BirthProfile, Question, User, Wallet, WalletLedger
 from .schemas import (
     AuthResponse,
@@ -440,7 +441,7 @@ def ask_with_sse(
             emitted_sections: list[dict[str, str]] = []
             generated = None
             chart = None
-            failure_message = ASK_FAILURE_MESSAGE
+            failure_message = localized_unavailable(question_text)
 
             def reset_attempt() -> None:
                 emitted_sections.clear()

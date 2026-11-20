@@ -18,6 +18,7 @@ from .groq import (
 from .validation import safe_violation_codes, validate_answer
 from .provider_errors import classify_provider_error, retry_delay
 from .sections import SectionParser, section_answer
+from .language import LANGUAGE_RULE
 
 LOGGER = logging.getLogger("melooha.llm.gemini")
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
@@ -43,7 +44,7 @@ def _positive_float_env(name: str, default: float) -> float:
         return default
 
 
-def _extract_stream(response: Any, *, facts: Sequence[str] = (), on_section: Callable[[str, str], None] | None = None) -> tuple[str, Any]:
+def _extract_stream(response: Any, *, facts: Sequence[str] = (), question: str = "", on_section: Callable[[str, str], None] | None = None) -> tuple[str, Any]:
     parts: list[str] = []
     usage = None
     parser = SectionParser()
@@ -55,11 +56,11 @@ def _extract_stream(response: Any, *, facts: Sequence[str] = (), on_section: Cal
             parts.append(value)
             if on_section:
                 for section in parser.feed(value):
-                    if section.text and not validate_answer(section.text, facts):
+                    if section.text and not validate_answer(section.text, facts, question):
                         on_section(section.title, section.text)
     if on_section:
         for section in parser.feed("", final=True):
-            if section.text and not validate_answer(section.text, facts):
+            if section.text and not validate_answer(section.text, facts, question):
                 on_section(section.title, section.text)
     if usage is not None:
         usage = {
@@ -120,7 +121,7 @@ def generate_gemini_answer(
                 )
                 # Buffer the complete Gemini stream so provider failover can never splice
                 # a partial Gemini answer into the Groq answer.
-                return _extract_stream(response, facts=facts, on_section=on_section)
+                return _extract_stream(response, facts=facts, question=question, on_section=on_section)
             except Exception as error:
                 category = classify_provider_error(error)
                 if category not in {"transient", "rate_limited"} or retry_index >= retry_limit:
@@ -144,22 +145,22 @@ def generate_gemini_answer(
         answer, usage = request(user_content)
         if answer:
             add_usage(usage, user_content, answer)
-        issues = validate_answer(answer, facts) if answer else ["The visible answer was empty."]
+        issues = validate_answer(answer, facts, question) if answer else ["The visible answer was empty."]
         stage = "gemini"
         if issues:
             if on_reset:
                 on_reset()
             LOGGER.warning("Gemini answer rejected key_slot=GEMINI_API_KEY model=%s answer_chars=%d violation_count=%d violation_codes=%s", model, len(answer), len(issues), safe_violation_codes(issues))
             retry_contents = (
-                f"{user_content}\n\nRegenerate a complete answer. Fix every hard violation listed below. "
+                f"{user_content}\n\nRegenerate a complete answer. Fix every hard violation listed below. {LANGUAGE_RULE} "
                 "Citations are optional; if included, use only IDs present in the supplied facts. Keep the answer natural, answer the question directly, and use only supplied facts.\nValidation feedback:\n- "
                 + "\n- ".join(issues)
-                + f"\nPrior answer:\n{answer}"
+                + f"\nPrior answer:\n{answer}\n{LANGUAGE_RULE}"
             )
             answer, retry_usage = request(retry_contents)
             if answer:
                 add_usage(retry_usage, retry_contents, answer)
-            retry_issues = validate_answer(answer, facts) if answer else ["The regenerated visible answer was empty."]
+            retry_issues = validate_answer(answer, facts, question) if answer else ["The regenerated visible answer was empty."]
             stage = "gemini_regenerated"
             if retry_issues:
                 LOGGER.warning("Gemini regenerated answer rejected key_slot=GEMINI_API_KEY model=%s answer_chars=%d violation_count=%d violation_codes=%s", model, len(answer), len(retry_issues), safe_violation_codes(retry_issues))

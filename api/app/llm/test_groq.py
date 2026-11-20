@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from api.app.llm.groq import APIKey, FALLBACK_MESSAGE, generate_answer
 from api.app.llm.groq import _messages
 from api.app.llm.validation import safe_fact_answer, validate_answer
+from api.app.llm.language import LANGUAGE_RULE, localized_unavailable
 from api.app.llm.routing import route_question
 from api.app.llm.groq import _extract_response
 from api.app.llm.groq import _extract_response
@@ -53,11 +54,52 @@ def make_keys():
     return [APIKey(f"GROQ_API_KEY{('_' + str(i)) if i > 1 else ''}", f"secret-{i}") for i in range(1, 5)]
 
 
-def test_answer_prompt_requires_the_users_language_for_the_whole_response():
-    prompt = _messages("¿Cuándo podría avanzar en mi trabajo?", ["F001 : Lagna is Scorpio"])
-    assert "Detect the language of the user's question" in prompt[0]["content"]
-    assert "same language" in prompt[0]["content"]
-    assert "do not switch to English" in prompt[0]["content"]
+def test_language_rule_is_last_line_and_english_facts_do_not_carry_ui_language():
+    prompt = _messages("What does Jupiter suggest?", ["F001 : Jupiter in house 10 (Leo)"])
+    assert prompt[0]["content"].endswith(LANGUAGE_RULE)
+    assert prompt[1]["content"].endswith(LANGUAGE_RULE)
+    assert "English only" in prompt[1]["content"]
+    assert "Hindi" not in prompt[1]["content"]
+
+
+def test_language_checker_accepts_matching_languages_and_rejects_confident_mismatches():
+    facts = ["F001 : Jupiter in house 10 (Leo)"]
+    assert validate_answer("Jupiter (गुरु) दशम भाव में है।", facts, "बृहस्पति कहाँ है?") == []
+    assert validate_answer("Votre Jupiter (Jupiter) est en Lion (Leo), ce placement peut favoriser la réflexion.", facts, "Que suggère mon thème professionnel ?") == []
+    assert validate_answer("Jupiter may suggest thoughtful growth.", facts, "What does Jupiter suggest?") == []
+    assert any("Reply language" in issue for issue in validate_answer("Júpiter puede favorecer nuevas oportunidades en tu carrera.", facts, "What does Jupiter suggest?"))
+    assert any("Reply language" in issue for issue in validate_answer("Jüpiter iş hayatında yeni fırsatlar gösterebilir.", facts, "What does Jupiter suggest?"))
+    assert validate_answer("Júpiter es una posibilidad.", facts, "xyzzy qzxv blorf?") == []
+
+
+def test_french_answer_cannot_invent_a_planet_missing_from_chart_facts():
+    issues = validate_answer("Votre Mars (Mars) est en Bélier (Aries), ce placement peut aider.", ["F001 : Jupiter in house 10 (Leo)"], "Que signifie mon thème ?")
+    assert any("Planet Mars is not present" in issue for issue in issues)
+
+
+def test_provider_failure_fallback_uses_question_language():
+    assert localized_unavailable("¿Qué indica mi carta?").startswith("Las respuestas")
+    assert localized_unavailable("Que montre mon thème ?").startswith("Les réponses")
+    assert localized_unavailable("What does my chart show?").startswith("Astrology answers")
+
+
+def test_mismatched_model_language_is_regenerated_before_returning():
+    outputs = iter([
+        "Júpiter puede favorecer nuevas oportunidades en tu carrera.",
+        "Jupiter may support thoughtful career growth [F001].",
+    ])
+    calls = []
+    def action():
+        calls.append(True)
+        return complete(next(outputs))
+    client = FakeClient(action, [])
+    result = generate_answer(
+        "What does Jupiter suggest for my career?", ["F001 : Jupiter in house 10 (Leo)"],
+        api_keys=make_keys()[:1], client_factory=lambda _secret: client, stream=False, gemini_api_key="",
+    )
+    assert result.succeeded
+    assert result.answer == "Jupiter may support thoughtful career growth [F001]."
+    assert len(calls) == 2
 
 
 def fake_factory(script, per_key_calls):

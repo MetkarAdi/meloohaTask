@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from .routing import TIMING_RE, detect_topic
+from .language import language_mismatch
 
 LOGGER = logging.getLogger("melooha.llm.validation")
 
@@ -156,10 +157,12 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.translate(str.maketrans({"\u202f": " ", "\u00a0": " ", "\u2009": " ", "\u200a": " ", "\u2007": " "}))).strip().lower()
 
 
-def check_answer(answer: str, facts: Sequence[str]) -> tuple[list[str], list[str]]:
+def check_answer(answer: str, facts: Sequence[str], question: str = "") -> tuple[list[str], list[str]]:
     """Return hard rejections and soft citation warnings separately."""
     parsed, issues = _parse_facts(facts)
     answer = _normalize(answer)
+    if question and (mismatch := language_mismatch(question, answer)):
+        issues.append(f"Reply language {mismatch[1]} does not match the user's language {mismatch[0]}.")
     known_ids = set(parsed)
     chart_facts = {fact_id: fact for fact_id, fact in parsed.items() if fact_id.startswith("F")}
     all_text = " ".join(fact.text for fact in parsed.values())
@@ -230,9 +233,9 @@ def check_answer(answer: str, facts: Sequence[str]) -> tuple[list[str], list[str
     return list(dict.fromkeys(issues)), list(dict.fromkeys(warnings))
 
 
-def validate_answer(answer: str, facts: Sequence[str]) -> list[str]:
+def validate_answer(answer: str, facts: Sequence[str], question: str = "") -> list[str]:
     """Return hard violations; soft citation warnings are logged and do not reject."""
-    hard, soft = check_answer(answer, facts)
+    hard, soft = check_answer(answer, facts, question)
     for warning in soft:
         LOGGER.warning("Soft answer citation warning=%s", warning)
     return hard

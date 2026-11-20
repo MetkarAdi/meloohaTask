@@ -9,6 +9,7 @@ from typing import Any, Callable, Sequence
 
 from .groq import FALLBACK_MESSAGE, APIKey, LLMAnswer, generate_groq_answer
 from .routing import route_question
+from .language import localized_unavailable
 
 LOGGER = logging.getLogger("melooha.llm.orchestrator")
 
@@ -104,7 +105,7 @@ def generate_answer(
     costs = [result.estimated_cost_usd for result in (gemini_result, groq_result) if result is not None]
     estimated_cost = sum(costs, Decimal("0")) if len(costs) == 2 and all(cost is not None for cost in costs) else None
     return LLMAnswer(
-        answer=FALLBACK_MESSAGE,
+        answer=localized_unavailable(question),
         provider="none",
         model="provider-failover-exhausted",
         api_key_slot=None,
